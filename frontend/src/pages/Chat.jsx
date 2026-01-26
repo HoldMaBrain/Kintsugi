@@ -6,7 +6,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Card } from '@/components/ui/card';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
-import { Loader2, Send, Trash2, LogOut, User } from 'lucide-react';
+import { Loader2, Send, Trash2, LogOut, User, Heart, Flower2, Leaf, Sparkles } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { createConversation, sendMessage, getConversation, deleteConversation, getConversations } from '@/lib/api';
 import { useToast } from '@/components/ui/use-toast';
@@ -248,55 +248,220 @@ export default function Chat() {
     }
   };
 
+  // Floating elements for the chat page
+  const floatingElements = [
+    { icon: Heart, color: "text-rose-300", size: "w-10 h-10", delay: 0, duration: 8, x: "3%", y: "15%" },
+    { icon: Flower2, color: "text-purple-300", size: "w-8 h-8", delay: 1, duration: 10, x: "92%", y: "25%" },
+    { icon: Leaf, color: "text-green-300", size: "w-9 h-9", delay: 2, duration: 9, x: "5%", y: "60%" },
+    { icon: Sparkles, color: "text-amber-300", size: "w-7 h-7", delay: 0.5, duration: 11, x: "94%", y: "50%" },
+    { icon: Heart, color: "text-pink-300", size: "w-8 h-8", delay: 1.5, duration: 8, x: "2%", y: "80%" },
+    { icon: Flower2, color: "text-rose-200", size: "w-9 h-9", delay: 2.5, duration: 10, x: "96%", y: "70%" },
+  ];
+
   // Show loading state while checking auth
   if (authLoading) {
     return (
-      <div className="h-screen flex items-center justify-center bg-gradient-to-br from-amber-50 via-white to-gold-50">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-gold-600 mx-auto"></div>
-          <p className="mt-4 text-muted-foreground">Loading...</p>
+      <div className="h-screen flex items-center justify-center bg-gradient-to-br from-amber-50 via-white to-gold-50 relative overflow-hidden">
+        {/* Animated background particles */}
+        <div className="absolute inset-0 overflow-hidden">
+          {[...Array(15)].map((_, i) => (
+            <motion.div
+              key={i}
+              className="absolute w-2 h-2 bg-gold-400/30 rounded-full"
+              initial={{
+                x: typeof window !== 'undefined' ? Math.random() * window.innerWidth : Math.random() * 1920,
+                y: typeof window !== 'undefined' ? Math.random() * window.innerHeight : Math.random() * 1080,
+                scale: 0,
+              }}
+              animate={{
+                y: [null, typeof window !== 'undefined' ? Math.random() * window.innerHeight : Math.random() * 1080],
+                scale: [0, 1, 0],
+                opacity: [0, 0.5, 0],
+              }}
+              transition={{
+                duration: Math.random() * 3 + 2,
+                repeat: Infinity,
+                delay: Math.random() * 2,
+              }}
+            />
+          ))}
+        </div>
+        <div className="text-center relative z-10">
+          <motion.div
+            animate={{ rotate: 360 }}
+            transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+            className="rounded-full h-16 w-16 border-4 border-gold-600 border-t-transparent mx-auto"
+          />
+          <motion.p
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ delay: 0.2 }}
+            className="mt-4 text-muted-foreground"
+          >
+            Loading...
+          </motion.p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="h-screen flex flex-col bg-gradient-to-br from-amber-50 via-white to-gold-50">
-      {/* Header */}
-      <div className="border-b bg-white/80 backdrop-blur-sm shadow-sm">
+    <div className="h-screen flex flex-col bg-gradient-to-br from-amber-50 via-white to-gold-50 relative overflow-hidden">
+      {/* Animated background */}
+      <div className="absolute inset-0 overflow-hidden pointer-events-none">
+        {/* Floating gold particles - reduced count for performance */}
+        {[...Array(10)].map((_, i) => (
+          <motion.div
+            key={`particle-${i}`}
+            className="absolute w-1 h-1 bg-gold-400/40 rounded-full"
+            style={{
+              transform: 'translateZ(0)', // GPU acceleration
+            }}
+            initial={{
+              x: typeof window !== 'undefined' ? Math.random() * window.innerWidth : Math.random() * 1920,
+              y: typeof window !== 'undefined' ? Math.random() * window.innerHeight : Math.random() * 1080,
+            }}
+            animate={{
+              y: [null, (Math.random() - 0.5) * 200],
+              x: [null, (Math.random() - 0.5) * 200],
+              opacity: [0.2, 0.5, 0.2],
+            }}
+            transition={{
+              duration: Math.random() * 8 + 6,
+              repeat: Infinity,
+              delay: Math.random() * 3,
+              ease: [0.4, 0, 0.6, 1],
+            }}
+          />
+        ))}
+        
+        {/* Mental health themed floating elements with hover glow */}
+        {floatingElements.map((element, i) => {
+          const Icon = element.icon;
+          return (
+            <motion.div
+              key={`floating-${i}`}
+              className={`absolute ${element.size} ${element.color} opacity-20 cursor-pointer group`}
+              style={{
+                left: element.x,
+                top: element.y,
+                transform: 'translateZ(0)', // GPU acceleration
+              }}
+              animate={{
+                y: [null, -15, 15, -10, 10, 0],
+                x: [null, -5, 5, -3, 3, 0],
+                rotate: [0, 2, -2, 1, -1, 0],
+                opacity: [0.15, 0.25, 0.2, 0.22, 0.18, 0.2],
+              }}
+              transition={{
+                duration: element.duration * 1.5,
+                repeat: Infinity,
+                delay: element.delay,
+                ease: [0.4, 0, 0.6, 1],
+              }}
+              whileHover={{
+                scale: 1.3,
+                opacity: 0.6,
+                transition: { duration: 0.3 },
+              }}
+            >
+              <Icon className="w-full h-full drop-shadow-lg group-hover:drop-shadow-[0_0_20px_currentColor] transition-all duration-300" />
+              {/* Glow effect on hover */}
+              <motion.div
+                className="absolute inset-0 rounded-full blur-xl opacity-0 group-hover:opacity-50 transition-opacity duration-300 pointer-events-none"
+                style={{
+                  backgroundColor: 'currentColor',
+                  transform: 'translateZ(0)',
+                }}
+              />
+            </motion.div>
+          );
+        })}
+        
+        {/* Large decorative gradient orbs - optimized for performance */}
+        <motion.div
+          className="absolute -top-40 -right-40 w-96 h-96 bg-gold-200/15 rounded-full blur-3xl"
+          style={{
+            willChange: 'transform, opacity',
+            transform: 'translateZ(0)', // GPU acceleration
+          }}
+          animate={{
+            scale: [1, 1.2, 1],
+            opacity: [0.2, 0.35, 0.2],
+          }}
+          transition={{
+            duration: 15,
+            repeat: Infinity,
+            ease: [0.4, 0, 0.6, 1],
+          }}
+        />
+        <motion.div
+          className="absolute -bottom-40 -left-40 w-96 h-96 bg-amber-200/15 rounded-full blur-3xl"
+          style={{
+            willChange: 'transform, opacity',
+            transform: 'translateZ(0)', // GPU acceleration
+          }}
+          animate={{
+            scale: [1, 1.25, 1],
+            opacity: [0.2, 0.35, 0.2],
+          }}
+          transition={{
+            duration: 18,
+            repeat: Infinity,
+            ease: [0.4, 0, 0.6, 1],
+            delay: 2,
+          }}
+        />
+      </div>
+      {/* Header with glass morphism */}
+      <div className="relative z-10 border-b border-gold-200/50 bg-white/40 backdrop-blur-xl shadow-lg shadow-gold-200/20">
         <div className="container mx-auto px-4 py-4 flex items-center justify-between">
           <div className="flex items-center gap-4">
-            <h1 className="text-2xl font-bold bg-gradient-to-r from-gold-600 to-gold-500 bg-clip-text text-transparent">
+            <motion.h1 
+              className="text-2xl font-bold bg-gradient-to-r from-gold-600 via-gold-500 to-gold-700 bg-clip-text text-transparent"
+              whileHover={{ scale: 1.05 }}
+              transition={{ duration: 0.2 }}
+            >
               Kintsugi
-            </h1>
+            </motion.h1>
             {user?.role === 'admin' && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => navigate('/admin')}
-              >
-                Admin Dashboard
-              </Button>
+              <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => navigate('/admin')}
+                  className="bg-white/60 backdrop-blur-sm border-gold-300/50 hover:bg-white/80 hover:shadow-md hover:shadow-gold-300/30 transition-all"
+                >
+                  Admin Dashboard
+                </Button>
+              </motion.div>
             )}
           </div>
           <div className="flex items-center gap-4">
-            <div className="flex items-center gap-2">
-              <Avatar>
-                <AvatarFallback>
-                  <User className="h-4 w-4" />
+            <div className="flex items-center gap-2 bg-white/50 backdrop-blur-sm px-3 py-1.5 rounded-full border border-gold-200/50">
+              <Avatar className="h-7 w-7 border border-gold-300/50">
+                <AvatarFallback className="bg-gold-100/80 text-gold-700">
+                  <User className="h-3.5 w-3.5" />
                 </AvatarFallback>
               </Avatar>
-              <span className="text-sm text-muted-foreground">{user?.email}</span>
+              <span className="text-sm text-gray-700 font-medium">{user?.email}</span>
             </div>
-            <Button variant="ghost" size="icon" onClick={handleSignOut}>
-              <LogOut className="h-4 w-4" />
-            </Button>
+            <motion.div whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }}>
+              <Button 
+                variant="ghost" 
+                size="icon" 
+                onClick={handleSignOut}
+                className="bg-white/50 backdrop-blur-sm border border-gold-200/50 hover:bg-white/80 hover:shadow-md hover:shadow-gold-300/30"
+              >
+                <LogOut className="h-4 w-4" />
+              </Button>
+            </motion.div>
           </div>
         </div>
       </div>
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto container mx-auto px-4 py-6 max-w-4xl">
+      <div className="flex-1 overflow-y-auto container mx-auto px-4 py-6 max-w-4xl relative z-10">
         <AnimatePresence>
           {messages.map((message) => (
             <motion.div
@@ -304,15 +469,29 @@ export default function Chat() {
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0 }}
+              transition={{ duration: 0.3 }}
               className={`mb-6 flex gap-4 ${message.sender === 'user' ? 'justify-end' : 'justify-start'}`}
             >
               {message.sender === 'ai' && (
-                <Avatar className="h-8 w-8 border-2 border-gold-300">
-                  <AvatarFallback className="bg-gold-100 text-gold-700">AI</AvatarFallback>
-                </Avatar>
+                <motion.div
+                  whileHover={{ scale: 1.1 }}
+                  transition={{ duration: 0.2 }}
+                >
+                  <Avatar className="h-8 w-8 border-2 border-gold-300/70 shadow-md shadow-gold-300/30">
+                    <AvatarFallback className="bg-gradient-to-br from-gold-100 to-gold-50 text-gold-700 font-semibold">AI</AvatarFallback>
+                  </Avatar>
+                </motion.div>
               )}
               <div className={`max-w-[80%] ${message.sender === 'user' ? 'order-2' : ''}`}>
-                <Card className={`p-4 ${message.sender === 'user' ? 'bg-gold-50 border-gold-200' : 'bg-white'}`}>
+                <motion.div
+                  whileHover={{ scale: 1.01 }}
+                  transition={{ duration: 0.2 }}
+                >
+                  <Card className={`p-4 backdrop-blur-xl border-2 ${
+                    message.sender === 'user' 
+                      ? 'bg-gradient-to-br from-gold-50/90 to-gold-100/80 border-gold-300/60 shadow-lg shadow-gold-300/20' 
+                      : 'bg-white/80 border-gold-200/50 shadow-lg shadow-gold-200/10'
+                  }`}>
                   {message.sender === 'ai' ? (
                     <div className="text-sm prose prose-sm max-w-none">
                       <ReactMarkdown
@@ -344,26 +523,32 @@ export default function Chat() {
                       Under Review
                     </Badge>
                   )}
-                </Card>
+                  </Card>
+                </motion.div>
               </div>
               {message.sender === 'user' && (
-                <Avatar className="h-8 w-8 border-2 border-gold-300">
-                  <AvatarFallback className="bg-blue-100 text-blue-700">You</AvatarFallback>
-                </Avatar>
+                <motion.div
+                  whileHover={{ scale: 1.1 }}
+                  transition={{ duration: 0.2 }}
+                >
+                  <Avatar className="h-8 w-8 border-2 border-gold-300/70 shadow-md shadow-gold-300/30">
+                    <AvatarFallback className="bg-gradient-to-br from-blue-100 to-blue-50 text-blue-700 font-semibold">You</AvatarFallback>
+                  </Avatar>
+                </motion.div>
               )}
             </motion.div>
           ))}
         </AnimatePresence>
         {pendingMessage && (
           <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
             className="mb-6 flex gap-4 justify-start"
           >
-            <Avatar className="h-8 w-8 border-2 border-gold-300">
-              <AvatarFallback className="bg-gold-100 text-gold-700">AI</AvatarFallback>
+            <Avatar className="h-8 w-8 border-2 border-gold-300/70 shadow-md shadow-gold-300/30">
+              <AvatarFallback className="bg-gradient-to-br from-gold-100 to-gold-50 text-gold-700 font-semibold">AI</AvatarFallback>
             </Avatar>
-            <Card className="p-4 bg-white border-2 border-gold-300">
+            <Card className="p-4 bg-white/80 backdrop-blur-xl border-2 border-gold-300/60 shadow-lg shadow-gold-300/20">
               <p className="text-sm text-muted-foreground italic">
                 This response is being reviewed by our safety team to ensure it meets our standards.
               </p>
@@ -373,11 +558,11 @@ export default function Chat() {
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Input */}
-      <div className="border-t bg-white/80 backdrop-blur-sm">
+      {/* Input with glass morphism */}
+      <div className="relative z-10 border-t border-gold-200/50 bg-white/40 backdrop-blur-xl shadow-lg shadow-gold-200/20">
         <div className="container mx-auto px-4 py-4 max-w-4xl">
           <div className="flex gap-4 items-end">
-            <div className="flex-1">
+            <div className="flex-1 relative">
               <Textarea
                 ref={textareaRef}
                 value={input}
@@ -389,31 +574,58 @@ export default function Chat() {
                   }
                 }}
                 placeholder="Share what's on your mind..."
-                className="min-h-[60px] resize-none"
+                className="min-h-[60px] resize-none bg-white/70 backdrop-blur-sm border-2 border-gold-200/50 focus:border-gold-400/70 focus:ring-2 focus:ring-gold-300/30 shadow-md shadow-gold-200/10 transition-all"
                 disabled={sending}
               />
+              {/* Glow effect on focus */}
+              <div className="absolute inset-0 pointer-events-none rounded-md opacity-0 focus-within:opacity-100 transition-opacity duration-300 blur-xl bg-gold-300/20 -z-10" />
             </div>
             <div className="flex gap-2">
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={handleDeleteConversation}
-                title="Delete conversation"
+              <motion.div whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }}>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={handleDeleteConversation}
+                  title="Delete conversation"
+                  className="bg-white/60 backdrop-blur-sm border border-gold-200/50 hover:bg-white/80 hover:shadow-md hover:shadow-gold-300/30 transition-all"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              </motion.div>
+              <motion.div 
+                whileHover={{ scale: 1.05 }} 
+                whileTap={{ scale: 0.95 }}
+                className="relative"
               >
-                <Trash2 className="h-4 w-4" />
-              </Button>
-              <Button
-                variant="gold"
-                size="icon"
-                onClick={handleSend}
-                disabled={sending || !input.trim()}
-              >
-                {sending ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Send className="h-4 w-4" />
+                <Button
+                  variant="gold"
+                  size="icon"
+                  onClick={handleSend}
+                  disabled={sending || !input.trim()}
+                  className="bg-gradient-to-r from-gold-500 to-gold-600 hover:from-gold-600 hover:to-gold-700 shadow-lg shadow-gold-500/40 hover:shadow-xl hover:shadow-gold-500/50 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {sending ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Send className="h-4 w-4" />
+                  )}
+                </Button>
+                {/* Glow effect */}
+                {!sending && input.trim() && (
+                  <motion.div
+                    className="absolute inset-0 rounded-full bg-gold-400/40 blur-md -z-10"
+                    animate={{
+                      opacity: [0.5, 0.8, 0.5],
+                      scale: [1, 1.2, 1],
+                    }}
+                    transition={{
+                      duration: 2,
+                      repeat: Infinity,
+                      ease: "easeInOut",
+                    }}
+                  />
                 )}
-              </Button>
+              </motion.div>
             </div>
           </div>
         </div>
