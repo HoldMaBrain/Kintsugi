@@ -9,7 +9,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { ArrowLeft, Shield, TrendingUp, AlertTriangle, CheckCircle } from 'lucide-react';
+import { ArrowLeft, Shield, TrendingUp, TrendingDown, AlertTriangle, CheckCircle, MessageSquare, BarChart3, Eye, Sparkles, Heart, Flower2, Leaf, Brain, ArrowDown, ArrowUp, BookOpen } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { getFlaggedMessages, reviewMessage, getMetrics, getReviewedMessages } from '@/lib/api';
 import { useToast } from '@/components/ui/use-toast';
@@ -136,99 +136,263 @@ export default function AdminDashboard() {
     }
   };
 
+  // Floating elements for admin dashboard
+  const floatingElements = [
+    { icon: Heart, color: "text-rose-300", size: "w-8 h-8", delay: 0, duration: 8, x: "2%", y: "10%" },
+    { icon: Flower2, color: "text-purple-300", size: "w-7 h-7", delay: 1, duration: 10, x: "96%", y: "20%" },
+    { icon: Leaf, color: "text-green-300", size: "w-6 h-6", delay: 2, duration: 9, x: "4%", y: "70%" },
+    { icon: Sparkles, color: "text-amber-300", size: "w-7 h-7", delay: 0.5, duration: 11, x: "94%", y: "60%" },
+  ];
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-amber-50 via-white to-gold-50">
-      <div className="container mx-auto px-4 py-8">
-        {/* Header */}
-        <div className="mb-8">
-          <Button
-            variant="ghost"
-            onClick={() => navigate('/chat')}
-            className="mb-4"
-          >
-            <ArrowLeft className="mr-2 h-4 w-4" />
-            Back to Chat
-          </Button>
-          <div className="flex items-center gap-4">
-            <Shield className="h-8 w-8 text-gold-600" />
-            <div>
-              <h1 className="text-3xl font-bold bg-gradient-to-r from-gold-600 to-gold-500 bg-clip-text text-transparent">
+    <div className="min-h-screen bg-gradient-to-br from-amber-50 via-white to-gold-50 relative overflow-hidden">
+      {/* Animated background */}
+      <div className="absolute inset-0 overflow-hidden pointer-events-none">
+        {/* Floating gold particles */}
+        {[...Array(8)].map((_, i) => (
+          <motion.div
+            key={`particle-${i}`}
+            className="absolute w-1 h-1 bg-gold-400/30 rounded-full"
+            style={{ transform: 'translateZ(0)' }}
+            initial={{
+              x: typeof window !== 'undefined' ? Math.random() * window.innerWidth : Math.random() * 1920,
+              y: typeof window !== 'undefined' ? Math.random() * window.innerHeight : Math.random() * 1080,
+            }}
+            animate={{
+              y: [null, (Math.random() - 0.5) * 150],
+              x: [null, (Math.random() - 0.5) * 150],
+              opacity: [0.15, 0.4, 0.15],
+            }}
+            transition={{
+              duration: Math.random() * 8 + 6,
+              repeat: Infinity,
+              delay: Math.random() * 3,
+              ease: [0.4, 0, 0.6, 1],
+            }}
+          />
+        ))}
+        
+        {/* Mental health themed floating elements */}
+        {floatingElements.map((element, i) => {
+          const Icon = element.icon;
+          return (
+            <motion.div
+              key={`floating-${i}`}
+              className={`absolute ${element.size} ${element.color} opacity-15 cursor-pointer group`}
+              style={{
+                left: element.x,
+                top: element.y,
+                transform: 'translateZ(0)',
+              }}
+              animate={{
+                y: [null, -12, 12, -8, 8, 0],
+                x: [null, -4, 4, -2, 2, 0],
+                rotate: [0, 2, -2, 1, -1, 0],
+                opacity: [0.1, 0.2, 0.15, 0.18, 0.12, 0.15],
+              }}
+              transition={{
+                duration: element.duration * 1.5,
+                repeat: Infinity,
+                delay: element.delay,
+                ease: [0.4, 0, 0.6, 1],
+              }}
+              whileHover={{
+                scale: 1.3,
+                opacity: 0.5,
+                transition: { duration: 0.3 },
+              }}
+            >
+              <Icon className="w-full h-full drop-shadow-lg group-hover:drop-shadow-[0_0_15px_currentColor] transition-all duration-300" />
+            </motion.div>
+          );
+        })}
+        
+        {/* Large decorative gradient orbs */}
+        <motion.div
+          className="absolute -top-40 -right-40 w-96 h-96 bg-gold-200/10 rounded-full blur-3xl"
+          style={{ transform: 'translateZ(0)' }}
+          animate={{
+            scale: [1, 1.2, 1],
+            opacity: [0.15, 0.3, 0.15],
+          }}
+          transition={{
+            duration: 15,
+            repeat: Infinity,
+            ease: [0.4, 0, 0.6, 1],
+          }}
+        />
+        <motion.div
+          className="absolute -bottom-40 -left-40 w-96 h-96 bg-amber-200/10 rounded-full blur-3xl"
+          style={{ transform: 'translateZ(0)' }}
+          animate={{
+            scale: [1, 1.25, 1],
+            opacity: [0.15, 0.3, 0.15],
+          }}
+          transition={{
+            duration: 18,
+            repeat: Infinity,
+            ease: [0.4, 0, 0.6, 1],
+            delay: 2,
+          }}
+        />
+      </div>
+
+      <div className="container mx-auto px-4 py-8 relative z-10">
+        {/* Header with glass morphism */}
+        <motion.div
+          initial={{ opacity: 0, y: -20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5 }}
+          className="mb-8"
+        >
+          <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
+            <Button
+              variant="ghost"
+              onClick={() => navigate('/chat')}
+              className="mb-6 bg-white/50 backdrop-blur-sm border border-gold-200/50 hover:bg-white/80 hover:shadow-md hover:shadow-gold-300/30 transition-all"
+            >
+              <ArrowLeft className="mr-2 h-4 w-4" />
+              Back to Chat
+            </Button>
+          </motion.div>
+          <div className="flex items-center gap-4 bg-white/40 backdrop-blur-xl rounded-2xl p-6 border-2 border-gold-200/50 shadow-lg shadow-gold-200/20">
+            <motion.div
+              whileHover={{ rotate: [0, -10, 10, -10, 0] }}
+              transition={{ duration: 0.5 }}
+            >
+              <div className="p-3 bg-gradient-to-br from-gold-500 to-gold-600 rounded-xl shadow-lg shadow-gold-500/30">
+                <Shield className="h-8 w-8 text-white" />
+              </div>
+            </motion.div>
+            <div className="flex-1">
+              <h1 className="text-4xl font-bold bg-gradient-to-r from-gold-600 via-gold-500 to-gold-700 bg-clip-text text-transparent mb-2">
                 Admin Dashboard
               </h1>
-              <p className="text-muted-foreground">Review and manage flagged conversations</p>
+              <p className="text-gray-700 font-medium">Review and manage flagged conversations</p>
             </div>
           </div>
-        </div>
+        </motion.div>
 
         <Tabs defaultValue="flagged" className="space-y-6">
-          <TabsList>
-            <TabsTrigger value="flagged">
-              Flagged Messages ({flaggedMessages.length})
+          <TabsList className="bg-white/40 backdrop-blur-xl border-2 border-gold-200/50 shadow-lg shadow-gold-200/20 p-1.5 rounded-xl">
+            <TabsTrigger 
+              value="flagged"
+              className="data-[state=active]:bg-gradient-to-r data-[state=active]:from-gold-500 data-[state=active]:to-gold-600 data-[state=active]:text-white data-[state=active]:shadow-lg data-[state=active]:shadow-gold-500/40 transition-all rounded-lg"
+            >
+              <AlertTriangle className="h-4 w-4 mr-2" />
+              Flagged ({flaggedMessages.length})
             </TabsTrigger>
-            <TabsTrigger value="reviewed">
-              Reviewed Messages ({reviewedMessages.length})
+            <TabsTrigger 
+              value="reviewed"
+              className="data-[state=active]:bg-gradient-to-r data-[state=active]:from-gold-500 data-[state=active]:to-gold-600 data-[state=active]:text-white data-[state=active]:shadow-lg data-[state=active]:shadow-gold-500/40 transition-all rounded-lg"
+            >
+              <Eye className="h-4 w-4 mr-2" />
+              Reviewed ({reviewedMessages.length})
             </TabsTrigger>
-            <TabsTrigger value="metrics">Metrics</TabsTrigger>
+            <TabsTrigger 
+              value="metrics"
+              className="data-[state=active]:bg-gradient-to-r data-[state=active]:from-gold-500 data-[state=active]:to-gold-600 data-[state=active]:text-white data-[state=active]:shadow-lg data-[state=active]:shadow-gold-500/40 transition-all rounded-lg"
+            >
+              <BarChart3 className="h-4 w-4 mr-2" />
+              Metrics
+            </TabsTrigger>
           </TabsList>
 
           <TabsContent value="flagged" className="space-y-4">
             {flaggedMessages.length === 0 ? (
-              <Card>
-                <CardContent className="py-12 text-center">
-                  <CheckCircle className="h-12 w-12 text-green-500 mx-auto mb-4" />
-                  <p className="text-muted-foreground">No flagged messages at this time</p>
-                </CardContent>
-              </Card>
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                transition={{ duration: 0.3 }}
+              >
+                <Card className="bg-white/60 backdrop-blur-xl border-2 border-gold-200/50 shadow-lg shadow-gold-200/20">
+                  <CardContent className="py-16 text-center">
+                    <motion.div
+                      animate={{ scale: [1, 1.1, 1] }}
+                      transition={{ duration: 2, repeat: Infinity }}
+                    >
+                      <CheckCircle className="h-16 w-16 text-green-500 mx-auto mb-4 drop-shadow-lg" />
+                    </motion.div>
+                    <p className="text-lg font-semibold text-gray-700">No flagged messages at this time</p>
+                    <p className="text-sm text-muted-foreground mt-2">All conversations are safe and clear</p>
+                  </CardContent>
+                </Card>
+              </motion.div>
             ) : (
-              flaggedMessages.map((item) => (
+              flaggedMessages.map((item, index) => (
                 <motion.div
                   key={item.id}
-                  initial={{ opacity: 0, y: 10 }}
+                  initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.3, delay: index * 0.05 }}
                 >
-                  <Card className="hover:shadow-lg transition-shadow">
-                    <CardHeader>
+                  <Card className="bg-white/70 backdrop-blur-xl border-2 border-gold-300/60 shadow-xl shadow-gold-300/20 hover:shadow-2xl hover:shadow-gold-400/30 hover:border-gold-400/80 transition-all duration-300 group">
+                    <CardHeader className="border-b border-gold-200/50 bg-gradient-to-r from-white/50 to-gold-50/30">
                       <div className="flex items-start justify-between">
                         <div className="flex-1">
-                          <div className="flex items-center gap-2 mb-2">
-                            <CardTitle className="text-lg">Flagged Message</CardTitle>
-                            <Badge variant={getRiskBadgeVariant(item.risk_level)}>
+                          <div className="flex items-center gap-3 mb-3">
+                            <div className="p-2 bg-gradient-to-br from-amber-100 to-amber-50 rounded-lg border border-amber-200/50">
+                              <AlertTriangle className="h-5 w-5 text-amber-600" />
+                            </div>
+                            <CardTitle className="text-xl font-bold text-gray-800">Flagged Message</CardTitle>
+                            <Badge 
+                              variant={getRiskBadgeVariant(item.risk_level)}
+                              className="shadow-md text-xs font-bold px-3 py-1"
+                            >
                               {item.risk_level?.toUpperCase() || 'UNKNOWN'}
                             </Badge>
                           </div>
-                          <CardDescription>
-                            User: {item.conversations?.users?.email || 'Unknown'} •{' '}
-                            {new Date(item.created_at).toLocaleString()}
+                          <CardDescription className="text-sm font-medium text-gray-600">
+                            <span className="font-semibold">User:</span> {item.conversations?.users?.email || 'Unknown'} •{' '}
+                            <span className="font-semibold">Time:</span> {new Date(item.created_at).toLocaleString()}
                           </CardDescription>
                         </div>
-                        <Button
-                          variant="gold"
-                          onClick={() => openReviewDialog(item)}
-                        >
-                          Review
-                        </Button>
+                        <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
+                          <Button
+                            variant="gold"
+                            onClick={() => openReviewDialog(item)}
+                            className="bg-gradient-to-r from-gold-500 to-gold-600 hover:from-gold-600 hover:to-gold-700 shadow-lg shadow-gold-500/40 hover:shadow-xl hover:shadow-gold-500/50 transition-all"
+                          >
+                            <Eye className="h-4 w-4 mr-2" />
+                            Review
+                          </Button>
+                        </motion.div>
                       </div>
                     </CardHeader>
-                    <CardContent className="space-y-4">
+                    <CardContent className="space-y-4 pt-6">
                       <div>
-                        <Label className="text-sm font-semibold mb-2 block">User Message:</Label>
-                        <Card className="p-3 bg-muted/50">
-                          <p className="text-sm">
+                        <Label className="text-sm font-bold mb-3 block text-gray-700 flex items-center gap-2">
+                          <MessageSquare className="h-4 w-4" />
+                          User Message:
+                        </Label>
+                        <Card className="p-4 bg-gradient-to-br from-blue-50/80 to-blue-100/50 backdrop-blur-sm border-2 border-blue-200/50 shadow-md">
+                          <p className="text-sm text-gray-800 leading-relaxed">
                             {(() => {
                               const conversation = item.conversations;
                               const messages = conversation?.messages || [];
-                              const userMessage = messages
-                                .filter(m => m.sender === 'user')
-                                .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))[0];
+                              // Sort all messages by created_at to get chronological order
+                              const sortedMessages = [...messages].sort((a, b) => 
+                                new Date(a.created_at) - new Date(b.created_at)
+                              );
+                              // Find the index of the flagged AI message
+                              const flaggedMessageIndex = sortedMessages.findIndex(msg => msg.id === item.id);
+                              // Find the user message that comes right before this AI message
+                              const userMessage = sortedMessages
+                                .slice(0, flaggedMessageIndex)
+                                .reverse()
+                                .find(m => m.sender === 'user');
                               return userMessage?.content || 'N/A';
                             })()}
                           </p>
                         </Card>
                       </div>
                       <div>
-                        <Label className="text-sm font-semibold mb-2 block">AI Response:</Label>
-                        <Card className="p-3 bg-amber-50 border-amber-200">
-                          <p className="text-sm">{item.content}</p>
+                        <Label className="text-sm font-bold mb-3 block text-gray-700 flex items-center gap-2">
+                          <AlertTriangle className="h-4 w-4 text-amber-600" />
+                          AI Response:
+                        </Label>
+                        <Card className="p-4 bg-gradient-to-br from-amber-50/80 to-amber-100/50 backdrop-blur-sm border-2 border-amber-300/60 shadow-md shadow-amber-300/20">
+                          <p className="text-sm text-gray-800 leading-relaxed">{item.content}</p>
                         </Card>
                       </div>
                     </CardContent>
@@ -240,78 +404,118 @@ export default function AdminDashboard() {
 
           <TabsContent value="reviewed" className="space-y-4">
             {reviewedMessages.length === 0 ? (
-              <Card>
-                <CardContent className="py-12 text-center">
-                  <CheckCircle className="h-12 w-12 text-green-500 mx-auto mb-4" />
-                  <p className="text-muted-foreground">No reviewed messages yet</p>
-                </CardContent>
-              </Card>
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                transition={{ duration: 0.3 }}
+              >
+                <Card className="bg-white/60 backdrop-blur-xl border-2 border-gold-200/50 shadow-lg shadow-gold-200/20">
+                  <CardContent className="py-16 text-center">
+                    <motion.div
+                      animate={{ scale: [1, 1.1, 1] }}
+                      transition={{ duration: 2, repeat: Infinity }}
+                    >
+                      <Eye className="h-16 w-16 text-blue-500 mx-auto mb-4 drop-shadow-lg" />
+                    </motion.div>
+                    <p className="text-lg font-semibold text-gray-700">No reviewed messages yet</p>
+                    <p className="text-sm text-muted-foreground mt-2">Reviewed messages will appear here</p>
+                  </CardContent>
+                </Card>
+              </motion.div>
             ) : (
-              reviewedMessages.map((item) => {
+              reviewedMessages.map((item, index) => {
                 const review = item.reviews?.[0];
                 return (
                   <motion.div
                     key={item.id}
-                    initial={{ opacity: 0, y: 10 }}
+                    initial={{ opacity: 0, y: 20 }}
                     animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.3, delay: index * 0.05 }}
                   >
-                    <Card className="hover:shadow-lg transition-shadow">
-                      <CardHeader>
+                    <Card className="bg-white/70 backdrop-blur-xl border-2 border-gold-300/60 shadow-xl shadow-gold-300/20 hover:shadow-2xl hover:shadow-gold-400/30 hover:border-gold-400/80 transition-all duration-300">
+                      <CardHeader className="border-b border-gold-200/50 bg-gradient-to-r from-white/50 to-gold-50/30">
                         <div className="flex items-start justify-between">
                           <div className="flex-1">
-                            <div className="flex items-center gap-2 mb-2">
-                              <CardTitle className="text-lg">Reviewed Message</CardTitle>
-                              <Badge variant={review?.verdict === 'unsafe' ? 'danger' : 'success'}>
+                            <div className="flex items-center gap-3 mb-3">
+                              <div className={`p-2 rounded-lg border ${
+                                review?.verdict === 'unsafe' 
+                                  ? 'bg-gradient-to-br from-red-100 to-red-50 border-red-200/50' 
+                                  : 'bg-gradient-to-br from-green-100 to-green-50 border-green-200/50'
+                              }`}>
+                                {review?.verdict === 'unsafe' ? (
+                                  <AlertTriangle className="h-5 w-5 text-red-600" />
+                                ) : (
+                                  <CheckCircle className="h-5 w-5 text-green-600" />
+                                )}
+                              </div>
+                              <CardTitle className="text-xl font-bold text-gray-800">Reviewed Message</CardTitle>
+                              <Badge 
+                                variant={review?.verdict === 'unsafe' ? 'danger' : 'success'}
+                                className="shadow-md text-xs font-bold px-3 py-1"
+                              >
                                 {review?.verdict === 'unsafe' ? 'UNSAFE' : 'SAFE'}
                               </Badge>
                               {item.risk_level && (
-                                <Badge variant={getRiskBadgeVariant(item.risk_level)}>
+                                <Badge 
+                                  variant={getRiskBadgeVariant(item.risk_level)}
+                                  className="shadow-md text-xs font-bold px-3 py-1"
+                                >
                                   {item.risk_level.toUpperCase()}
                                 </Badge>
                               )}
                             </div>
-                            <CardDescription>
-                              User: {item.conversations?.users?.email || 'Unknown'} •{' '}
-                              Reviewed by: {review?.users?.email || 'Unknown'} •{' '}
-                              {new Date(item.created_at).toLocaleString()}
+                            <CardDescription className="text-sm font-medium text-gray-600">
+                              <span className="font-semibold">User:</span> {item.conversations?.users?.email || 'Unknown'} •{' '}
+                              <span className="font-semibold">Reviewed by:</span> {review?.users?.email || 'Unknown'} •{' '}
+                              <span className="font-semibold">Time:</span> {new Date(item.created_at).toLocaleString()}
                             </CardDescription>
                           </div>
                         </div>
                       </CardHeader>
-                      <CardContent className="space-y-4">
+                      <CardContent className="space-y-4 pt-6">
                         <div>
-                          <Label className="text-sm font-semibold mb-2 block">User Message:</Label>
-                          <Card className="p-3 bg-muted/50">
-                            <p className="text-sm">
+                          <Label className="text-sm font-bold mb-3 block text-gray-700 flex items-center gap-2">
+                            <MessageSquare className="h-4 w-4" />
+                            User Message:
+                          </Label>
+                          <Card className="p-4 bg-gradient-to-br from-blue-50/80 to-blue-100/50 backdrop-blur-sm border-2 border-blue-200/50 shadow-md">
+                            <p className="text-sm text-gray-800 leading-relaxed">
                               {(() => {
                                 const conversation = item.conversations;
                                 const messages = conversation?.messages || [];
-                                const userMessage = messages
-                                  .filter(m => m.sender === 'user')
-                                  .sort((a, b) => new Date(a.created_at) - new Date(b.created_at))
-                                  .find((m, idx, arr) => {
-                                    const aiMessageIndex = messages.findIndex(msg => msg.id === item.id);
-                                    const userMessageIndex = messages.findIndex(msg => msg.id === m.id);
-                                    return userMessageIndex < aiMessageIndex && userMessageIndex >= aiMessageIndex - 1;
-                                  }) || messages
-                                    .filter(m => m.sender === 'user')
-                                    .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))[0];
+                                // Sort all messages by created_at to get chronological order
+                                const sortedMessages = [...messages].sort((a, b) => 
+                                  new Date(a.created_at) - new Date(b.created_at)
+                                );
+                                // Find the index of the reviewed AI message
+                                const reviewedMessageIndex = sortedMessages.findIndex(msg => msg.id === item.id);
+                                // Find the user message that comes right before this AI message
+                                const userMessage = sortedMessages
+                                  .slice(0, reviewedMessageIndex)
+                                  .reverse()
+                                  .find(m => m.sender === 'user');
                                 return userMessage?.content || 'N/A';
                               })()}
                             </p>
                           </Card>
                         </div>
                         <div>
-                          <Label className="text-sm font-semibold mb-2 block">AI Response (Final):</Label>
-                          <Card className="p-3 bg-green-50 border-green-200">
-                            <p className="text-sm">{item.content}</p>
+                          <Label className="text-sm font-bold mb-3 block text-gray-700 flex items-center gap-2">
+                            <CheckCircle className="h-4 w-4 text-green-600" />
+                            AI Response (Final):
+                          </Label>
+                          <Card className="p-4 bg-gradient-to-br from-green-50/80 to-green-100/50 backdrop-blur-sm border-2 border-green-300/60 shadow-md shadow-green-300/20">
+                            <p className="text-sm text-gray-800 leading-relaxed">{item.content}</p>
                           </Card>
                         </div>
                         {review?.feedback && (
                           <div>
-                            <Label className="text-sm font-semibold mb-2 block">Admin Feedback:</Label>
-                            <Card className="p-3 bg-blue-50 border-blue-200">
-                              <p className="text-sm">{review.feedback}</p>
+                            <Label className="text-sm font-bold mb-3 block text-gray-700 flex items-center gap-2">
+                              <Shield className="h-4 w-4 text-blue-600" />
+                              Admin Feedback:
+                            </Label>
+                            <Card className="p-4 bg-gradient-to-br from-blue-50/80 to-blue-100/50 backdrop-blur-sm border-2 border-blue-300/60 shadow-md shadow-blue-300/20">
+                              <p className="text-sm text-gray-800 leading-relaxed">{review.feedback}</p>
                             </Card>
                           </div>
                         )}
@@ -319,9 +523,12 @@ export default function AdminDashboard() {
                           <>
                             {review.original_response && (
                               <div>
-                                <Label className="text-sm font-semibold mb-2 block">Original Unsafe Response:</Label>
-                                <Card className="p-3 bg-red-50 border-red-200">
-                                  <p className="text-sm line-through text-muted-foreground">
+                                <Label className="text-sm font-bold mb-3 block text-gray-700 flex items-center gap-2">
+                                  <AlertTriangle className="h-4 w-4 text-red-600" />
+                                  Original Unsafe Response:
+                                </Label>
+                                <Card className="p-4 bg-gradient-to-br from-red-50/80 to-red-100/50 backdrop-blur-sm border-2 border-red-300/60 shadow-md">
+                                  <p className="text-sm line-through text-gray-500 leading-relaxed">
                                     {review.original_response}
                                   </p>
                                 </Card>
@@ -329,9 +536,12 @@ export default function AdminDashboard() {
                             )}
                             {review.corrected_response && (
                               <div>
-                                <Label className="text-sm font-semibold mb-2 block">Corrected Response:</Label>
-                                <Card className="p-3 bg-green-50 border-green-200">
-                                  <p className="text-sm">{review.corrected_response}</p>
+                                <Label className="text-sm font-bold mb-3 block text-gray-700 flex items-center gap-2">
+                                  <Sparkles className="h-4 w-4 text-green-600" />
+                                  Corrected Response:
+                                </Label>
+                                <Card className="p-4 bg-gradient-to-br from-green-50/80 to-green-100/50 backdrop-blur-sm border-2 border-green-300/60 shadow-md shadow-green-300/20">
+                                  <p className="text-sm text-gray-800 leading-relaxed">{review.corrected_response}</p>
                                 </Card>
                               </div>
                             )}
@@ -347,94 +557,397 @@ export default function AdminDashboard() {
 
           <TabsContent value="metrics">
             {metrics ? (
-              <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-4">
-                <Card>
-                  <CardHeader className="pb-3">
-                    <CardDescription>Total Messages</CardDescription>
-                    <CardTitle className="text-3xl">{metrics.totalMessages || 0}</CardTitle>
-                  </CardHeader>
-                </Card>
-                <Card>
-                  <CardHeader className="pb-3">
-                    <CardDescription>Flagged Messages</CardDescription>
-                    <CardTitle className="text-3xl text-yellow-600">{metrics.flaggedCount || 0}</CardTitle>
-                  </CardHeader>
-                </Card>
-                <Card>
-                  <CardHeader className="pb-3">
-                    <CardDescription>Flagged Percentage</CardDescription>
-                    <CardTitle className="text-3xl text-orange-600">
-                      {metrics.flaggedPercentage?.toFixed(1) || 0}%
-                    </CardTitle>
-                  </CardHeader>
-                </Card>
-                <Card>
-                  <CardHeader className="pb-3">
-                    <CardDescription>Correction Rate</CardDescription>
-                    <CardTitle className="text-3xl text-red-600">
-                      {metrics.correctionRate?.toFixed(1) || 0}%
-                    </CardTitle>
-                  </CardHeader>
-                </Card>
-                <Card className="md:col-span-2">
-                  <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
-                      <TrendingUp className="h-5 w-5" />
-                      Risk Distribution
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="space-y-2">
-                      <div className="flex justify-between items-center">
-                        <span className="text-sm">High Risk</span>
-                        <Badge variant="danger">{metrics.highRiskCount || 0}</Badge>
+              <div className="space-y-6">
+                {/* Learning Progress Section */}
+                <motion.div
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.3 }}
+                  className="grid md:grid-cols-2 gap-6"
+                >
+                  {/* Day-to-Day Improvement Card */}
+                  <Card className="bg-gradient-to-br from-green-50/80 to-emerald-50/60 backdrop-blur-xl border-2 border-green-300/60 shadow-xl shadow-green-300/20 hover:shadow-2xl hover:shadow-green-400/30 transition-all duration-300">
+                    <CardHeader>
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <CardDescription className="text-sm font-semibold text-gray-600 mb-2">Day-to-Day Improvement</CardDescription>
+                          <CardTitle className="text-5xl font-bold bg-gradient-to-r from-green-600 to-emerald-600 bg-clip-text text-transparent">
+                            {metrics.dayToDayImprovement > 0 ? `+${metrics.dayToDayImprovement.toFixed(1)}` : metrics.dayToDayImprovement.toFixed(1)}%
+                          </CardTitle>
+                          <p className="text-xs text-gray-600 mt-2">
+                            Improvement from yesterday to today
+                          </p>
+                        </div>
+                        <motion.div
+                          animate={{ scale: [1, 1.1, 1] }}
+                          transition={{ duration: 2, repeat: Infinity }}
+                        >
+                          <div className="p-4 bg-gradient-to-br from-green-100 to-emerald-100 rounded-xl border border-green-200/50">
+                            {metrics.dayToDayImprovement > 0 ? (
+                              <TrendingDown className="h-10 w-10 text-green-600" />
+                            ) : (
+                              <TrendingUp className="h-10 w-10 text-amber-600" />
+                            )}
+                          </div>
+                        </motion.div>
                       </div>
-                      <div className="flex justify-between items-center">
-                        <span className="text-sm">Medium Risk</span>
-                        <Badge variant="warning">{metrics.mediumRiskCount || 0}</Badge>
+                    </CardHeader>
+                  </Card>
+
+                  {/* Feedback Count Card */}
+                  <Card className="bg-gradient-to-br from-purple-50/80 to-indigo-50/60 backdrop-blur-xl border-2 border-purple-300/60 shadow-xl shadow-purple-300/20 hover:shadow-2xl hover:shadow-purple-400/30 transition-all duration-300">
+                    <CardHeader>
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <CardDescription className="text-sm font-semibold text-gray-600 mb-2">Total Feedback Provided</CardDescription>
+                          <CardTitle className="text-5xl font-bold bg-gradient-to-r from-purple-600 to-indigo-600 bg-clip-text text-transparent">
+                            {metrics.totalFeedback || 0}
+                          </CardTitle>
+                          <p className="text-xs text-gray-600 mt-2">
+                            Learning examples the chatbot has learned from
+                          </p>
+                        </div>
+                        <div className="p-4 bg-gradient-to-br from-purple-100 to-indigo-100 rounded-xl border border-purple-200/50">
+                          <Brain className="h-10 w-10 text-purple-600" />
+                        </div>
                       </div>
-                      <div className="flex justify-between items-center">
-                        <span className="text-sm">Total Reviews</span>
-                        <Badge variant="secondary">{metrics.totalReviews || 0}</Badge>
+                    </CardHeader>
+                  </Card>
+                </motion.div>
+
+                {/* Day-to-Day Comparison Section */}
+                <motion.div
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.3, delay: 0.1 }}
+                  className="grid md:grid-cols-3 gap-6"
+                >
+                  {/* Today */}
+                  <Card className="bg-white/70 backdrop-blur-xl border-2 border-green-300/60 shadow-xl shadow-green-300/20">
+                    <CardHeader>
+                      <CardTitle className="flex items-center gap-2 text-lg font-bold text-gray-800">
+                        <div className="p-2 bg-gradient-to-br from-green-100 to-green-50 rounded-lg border border-green-200/50">
+                          <Sparkles className="h-5 w-5 text-green-600" />
+                        </div>
+                        Today
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-3">
+                      <div className="flex justify-between items-center p-3 bg-gradient-to-r from-blue-50/50 to-blue-100/30 rounded-lg border border-blue-200/50">
+                        <span className="text-sm font-semibold text-gray-700">Messages</span>
+                        <span className="text-lg font-bold text-blue-600">{metrics.todayMessagesCount || 0}</span>
                       </div>
-                    </div>
-                  </CardContent>
-                </Card>
+                      <div className="flex justify-between items-center p-3 bg-gradient-to-r from-amber-50/50 to-amber-100/30 rounded-lg border border-amber-200/50">
+                        <span className="text-sm font-semibold text-gray-700">Flagged</span>
+                        <span className="text-lg font-bold text-amber-600">{metrics.todayFlaggedCount || 0}</span>
+                      </div>
+                      <div className="flex justify-between items-center p-3 bg-gradient-to-r from-red-50/50 to-red-100/30 rounded-lg border border-red-200/50">
+                        <span className="text-sm font-semibold text-gray-700">Flagged Rate</span>
+                        <span className="text-lg font-bold text-red-600">{metrics.todayFlaggedRate?.toFixed(1) || 0}%</span>
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  {/* Yesterday */}
+                  <Card className="bg-white/70 backdrop-blur-xl border-2 border-blue-300/60 shadow-xl shadow-blue-300/20">
+                    <CardHeader>
+                      <CardTitle className="flex items-center gap-2 text-lg font-bold text-gray-800">
+                        <div className="p-2 bg-gradient-to-br from-blue-100 to-blue-50 rounded-lg border border-blue-200/50">
+                          <ArrowDown className="h-5 w-5 text-blue-600" />
+                        </div>
+                        Yesterday
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-3">
+                      <div className="flex justify-between items-center p-3 bg-gradient-to-r from-blue-50/50 to-blue-100/30 rounded-lg border border-blue-200/50">
+                        <span className="text-sm font-semibold text-gray-700">Messages</span>
+                        <span className="text-lg font-bold text-blue-600">{metrics.yesterdayMessagesCount || 0}</span>
+                      </div>
+                      <div className="flex justify-between items-center p-3 bg-gradient-to-r from-amber-50/50 to-amber-100/30 rounded-lg border border-amber-200/50">
+                        <span className="text-sm font-semibold text-gray-700">Flagged</span>
+                        <span className="text-lg font-bold text-amber-600">{metrics.yesterdayFlaggedCount || 0}</span>
+                      </div>
+                      <div className="flex justify-between items-center p-3 bg-gradient-to-r from-red-50/50 to-red-100/30 rounded-lg border border-red-200/50">
+                        <span className="text-sm font-semibold text-gray-700">Flagged Rate</span>
+                        <span className="text-lg font-bold text-red-600">{metrics.yesterdayFlaggedRate?.toFixed(1) || 0}%</span>
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  {/* 2 Days Ago */}
+                  <Card className="bg-white/70 backdrop-blur-xl border-2 border-orange-300/60 shadow-xl shadow-orange-300/20">
+                    <CardHeader>
+                      <CardTitle className="flex items-center gap-2 text-lg font-bold text-gray-800">
+                        <div className="p-2 bg-gradient-to-br from-orange-100 to-orange-50 rounded-lg border border-orange-200/50">
+                          <ArrowUp className="h-5 w-5 text-orange-600" />
+                        </div>
+                        2 Days Ago
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-3">
+                      <div className="flex justify-between items-center p-3 bg-gradient-to-r from-blue-50/50 to-blue-100/30 rounded-lg border border-blue-200/50">
+                        <span className="text-sm font-semibold text-gray-700">Messages</span>
+                        <span className="text-lg font-bold text-blue-600">{metrics.twoDaysAgoMessagesCount || 0}</span>
+                      </div>
+                      <div className="flex justify-between items-center p-3 bg-gradient-to-r from-amber-50/50 to-amber-100/30 rounded-lg border border-amber-200/50">
+                        <span className="text-sm font-semibold text-gray-700">Flagged</span>
+                        <span className="text-lg font-bold text-amber-600">{metrics.twoDaysAgoFlaggedCount || 0}</span>
+                      </div>
+                      <div className="flex justify-between items-center p-3 bg-gradient-to-r from-red-50/50 to-red-100/30 rounded-lg border border-red-200/50">
+                        <span className="text-sm font-semibold text-gray-700">Flagged Rate</span>
+                        <span className="text-lg font-bold text-red-600">{metrics.twoDaysAgoFlaggedRate?.toFixed(1) || 0}%</span>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </motion.div>
+
+                {/* Hourly Trend Chart */}
+                {metrics.hourlyData && metrics.hourlyData.length > 0 && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.3, delay: 0.15 }}
+                  >
+                    <Card className="bg-white/70 backdrop-blur-xl border-2 border-purple-300/60 shadow-xl shadow-purple-300/20">
+                      <CardHeader>
+                        <CardTitle className="flex items-center gap-3 text-xl font-bold text-gray-800">
+                          <div className="p-2 bg-gradient-to-br from-purple-100 to-purple-50 rounded-lg border border-purple-200/50">
+                            <BarChart3 className="h-6 w-6 text-purple-600" />
+                          </div>
+                          Hourly Trend (Last 24 Hours)
+                        </CardTitle>
+                        <CardDescription className="text-sm text-gray-600">
+                          Real-time improvement tracking showing flagged messages by hour
+                        </CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="h-64 flex items-end justify-between gap-1">
+                          {metrics.hourlyData.map((hour, index) => {
+                            const maxFlagged = Math.max(...metrics.hourlyData.map(h => h.flagged), 1);
+                            const height = maxFlagged > 0 ? (hour.flagged / maxFlagged) * 100 : 0;
+                            const isRecent = index >= metrics.hourlyData.length - 6; // Last 6 hours
+                            
+                            return (
+                              <div key={`${hour.date}-${hour.hour}`} className="flex-1 flex flex-col items-center gap-1 group relative">
+                                <motion.div
+                                  initial={{ height: 0 }}
+                                  animate={{ height: `${height}%` }}
+                                  transition={{ duration: 0.5, delay: index * 0.03 }}
+                                  className={`w-full rounded-t transition-all ${
+                                    isRecent 
+                                      ? 'bg-gradient-to-t from-green-500 to-green-400' 
+                                      : 'bg-gradient-to-t from-purple-500 to-purple-400'
+                                  } opacity-80 hover:opacity-100 group-hover:shadow-lg`}
+                                  style={{ minHeight: hour.flagged > 0 ? '4px' : '0' }}
+                                />
+                                {index % 4 === 0 && (
+                                  <span className="text-xs text-gray-500 transform -rotate-45 origin-top-left whitespace-nowrap">
+                                    {hour.hourLabel}
+                                  </span>
+                                )}
+                                <div className="hidden group-hover:block absolute -top-10 bg-gray-900 text-white text-xs px-2 py-1 rounded z-10 whitespace-nowrap">
+                                  {hour.flagged} flagged<br/>
+                                  {hour.total} total
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                        <div className="flex items-center justify-center gap-4 mt-4 pt-4 border-t border-purple-200/50">
+                          <div className="flex items-center gap-2">
+                            <div className="w-4 h-4 bg-purple-500 rounded"></div>
+                            <span className="text-xs text-gray-600">Earlier Hours</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <div className="w-4 h-4 bg-green-500 rounded"></div>
+                            <span className="text-xs text-gray-600">Recent (Last 6 Hours)</span>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  </motion.div>
+                )}
+
+                {/* Trend Chart */}
+                {metrics.dailyData && metrics.dailyData.length > 0 && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.3, delay: 0.2 }}
+                  >
+                    <Card className="bg-white/70 backdrop-blur-xl border-2 border-gold-300/60 shadow-xl shadow-gold-300/20">
+                      <CardHeader>
+                        <CardTitle className="flex items-center gap-3 text-xl font-bold text-gray-800">
+                          <div className="p-2 bg-gradient-to-br from-gold-100 to-gold-50 rounded-lg border border-gold-200/50">
+                            <BarChart3 className="h-6 w-6 text-gold-600" />
+                          </div>
+                          Flagged Messages Trend (Last 30 Days)
+                        </CardTitle>
+                        <CardDescription className="text-sm text-gray-600">
+                          Day-to-day trend showing the decrease in flagged messages as the chatbot learns from feedback
+                        </CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="h-64 flex items-end justify-between gap-1">
+                          {metrics.dailyData.map((day, index) => {
+                            const maxFlagged = Math.max(...metrics.dailyData.map(d => d.flagged), 1);
+                            const height = maxFlagged > 0 ? (day.flagged / maxFlagged) * 100 : 0;
+                            const isRecent = index >= metrics.dailyData.length - 7;
+                            
+                            return (
+                              <div key={day.date} className="flex-1 flex flex-col items-center gap-1 group">
+                                <motion.div
+                                  initial={{ height: 0 }}
+                                  animate={{ height: `${height}%` }}
+                                  transition={{ duration: 0.5, delay: index * 0.02 }}
+                                  className={`w-full rounded-t transition-all ${
+                                    isRecent 
+                                      ? 'bg-gradient-to-t from-green-500 to-green-400' 
+                                      : 'bg-gradient-to-t from-amber-500 to-amber-400'
+                                  } opacity-80 hover:opacity-100 group-hover:shadow-lg`}
+                                  style={{ minHeight: day.flagged > 0 ? '4px' : '0' }}
+                                />
+                                {index % 5 === 0 && (
+                                  <span className="text-xs text-gray-500 transform -rotate-45 origin-top-left whitespace-nowrap">
+                                    {new Date(day.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                                  </span>
+                                )}
+                                <div className="hidden group-hover:block absolute -top-8 bg-gray-900 text-white text-xs px-2 py-1 rounded z-10">
+                                  {day.flagged} flagged
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                        <div className="flex items-center justify-center gap-4 mt-4 pt-4 border-t border-gold-200/50">
+                          <div className="flex items-center gap-2">
+                            <div className="w-4 h-4 bg-amber-500 rounded"></div>
+                            <span className="text-xs text-gray-600">Earlier Days</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <div className="w-4 h-4 bg-green-500 rounded"></div>
+                            <span className="text-xs text-gray-600">Recent (Last 3 Days)</span>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  </motion.div>
+                )}
+
+                {/* Summary Stats */}
+                <motion.div
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.3, delay: 0.3 }}
+                  className="grid md:grid-cols-2 lg:grid-cols-4 gap-6"
+                >
+                  <Card className="bg-white/70 backdrop-blur-xl border-2 border-blue-300/60 shadow-xl shadow-blue-300/20 hover:shadow-2xl hover:shadow-blue-400/30 transition-all duration-300">
+                    <CardHeader className="pb-3">
+                      <div className="flex items-center gap-3 mb-2">
+                        <div className="p-2 bg-gradient-to-br from-blue-100 to-blue-50 rounded-lg border border-blue-200/50">
+                          <MessageSquare className="h-5 w-5 text-blue-600" />
+                        </div>
+                        <CardDescription className="text-sm font-semibold text-gray-600">Total Messages</CardDescription>
+                      </div>
+                      <CardTitle className="text-4xl font-bold bg-gradient-to-r from-blue-600 to-blue-500 bg-clip-text text-transparent">
+                        {metrics.totalMessages || 0}
+                      </CardTitle>
+                    </CardHeader>
+                  </Card>
+                  <Card className="bg-white/70 backdrop-blur-xl border-2 border-amber-300/60 shadow-xl shadow-amber-300/20 hover:shadow-2xl hover:shadow-amber-400/30 transition-all duration-300">
+                    <CardHeader className="pb-3">
+                      <div className="flex items-center gap-3 mb-2">
+                        <div className="p-2 bg-gradient-to-br from-amber-100 to-amber-50 rounded-lg border border-amber-200/50">
+                          <AlertTriangle className="h-5 w-5 text-amber-600" />
+                        </div>
+                        <CardDescription className="text-sm font-semibold text-gray-600">Total Flagged</CardDescription>
+                      </div>
+                      <CardTitle className="text-4xl font-bold bg-gradient-to-r from-amber-600 to-amber-500 bg-clip-text text-transparent">
+                        {metrics.flaggedCount || 0}
+                      </CardTitle>
+                    </CardHeader>
+                  </Card>
+                  <Card className="bg-white/70 backdrop-blur-xl border-2 border-orange-300/60 shadow-xl shadow-orange-300/20 hover:shadow-2xl hover:shadow-orange-400/30 transition-all duration-300">
+                    <CardHeader className="pb-3">
+                      <div className="flex items-center gap-3 mb-2">
+                        <div className="p-2 bg-gradient-to-br from-orange-100 to-orange-50 rounded-lg border border-orange-200/50">
+                          <BookOpen className="h-5 w-5 text-orange-600" />
+                        </div>
+                        <CardDescription className="text-sm font-semibold text-gray-600">Total Reviews</CardDescription>
+                      </div>
+                      <CardTitle className="text-4xl font-bold bg-gradient-to-r from-orange-600 to-orange-500 bg-clip-text text-transparent">
+                        {metrics.totalReviews || 0}
+                      </CardTitle>
+                    </CardHeader>
+                  </Card>
+                  <Card className="bg-white/70 backdrop-blur-xl border-2 border-red-300/60 shadow-xl shadow-red-300/20 hover:shadow-2xl hover:shadow-red-400/30 transition-all duration-300">
+                    <CardHeader className="pb-3">
+                      <div className="flex items-center gap-3 mb-2">
+                        <div className="p-2 bg-gradient-to-br from-red-100 to-red-50 rounded-lg border border-red-200/50">
+                          <Shield className="h-5 w-5 text-red-600" />
+                        </div>
+                        <CardDescription className="text-sm font-semibold text-gray-600">Correction Rate</CardDescription>
+                      </div>
+                      <CardTitle className="text-4xl font-bold bg-gradient-to-r from-red-600 to-red-500 bg-clip-text text-transparent">
+                        {metrics.correctionRate?.toFixed(1) || 0}%
+                      </CardTitle>
+                    </CardHeader>
+                  </Card>
+                </motion.div>
               </div>
             ) : (
-              <Card>
-                <CardContent className="py-12 text-center">
-                  <p className="text-muted-foreground">Loading metrics...</p>
-                </CardContent>
-              </Card>
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ duration: 0.3 }}
+              >
+                <Card className="bg-white/60 backdrop-blur-xl border-2 border-gold-200/50 shadow-lg shadow-gold-200/20">
+                  <CardContent className="py-16 text-center">
+                    <motion.div
+                      animate={{ rotate: 360 }}
+                      transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+                      className="rounded-full h-12 w-12 border-4 border-gold-600 border-t-transparent mx-auto mb-4"
+                    />
+                    <p className="text-muted-foreground font-medium">Loading metrics...</p>
+                  </CardContent>
+                </Card>
+              </motion.div>
             )}
           </TabsContent>
         </Tabs>
 
-        {/* Review Dialog */}
+        {/* Review Dialog with enhanced styling */}
         <Dialog open={reviewDialogOpen} onOpenChange={setReviewDialogOpen}>
-          <DialogContent className="max-w-2xl">
-            <DialogHeader>
-              <DialogTitle>Review Flagged Message</DialogTitle>
-              <DialogDescription>
+          <DialogContent className="max-w-3xl max-h-[90vh] bg-white/95 backdrop-blur-xl border-2 border-gold-300/60 shadow-2xl shadow-gold-400/30 flex flex-col">
+            <DialogHeader className="border-b border-gold-200/50 pb-4 flex-shrink-0">
+              <DialogTitle className="text-2xl font-bold bg-gradient-to-r from-gold-600 to-gold-500 bg-clip-text text-transparent flex items-center gap-3">
+                <div className="p-2 bg-gradient-to-br from-gold-100 to-gold-50 rounded-lg border border-gold-200/50">
+                  <Shield className="h-6 w-6 text-gold-600" />
+                </div>
+                Review Flagged Message
+              </DialogTitle>
+              <DialogDescription className="text-gray-600 font-medium mt-2">
                 Review the AI response and provide your judgment
               </DialogDescription>
             </DialogHeader>
             {selectedMessage && (
-              <div className="space-y-4">
+              <div className="space-y-6 py-4 overflow-y-auto flex-1 min-h-0">
                 <div>
-                  <Label>Original AI Response</Label>
-                  <Card className="p-3 bg-muted/50 mt-2">
-                    <p className="text-sm">{selectedMessage.content}</p>
+                  <Label className="text-sm font-bold mb-3 block text-gray-700 flex items-center gap-2">
+                    <AlertTriangle className="h-4 w-4 text-amber-600" />
+                    Original AI Response
+                  </Label>
+                  <Card className="p-4 bg-gradient-to-br from-amber-50/80 to-amber-100/50 backdrop-blur-sm border-2 border-amber-300/60 shadow-md">
+                    <p className="text-sm text-gray-800 leading-relaxed">{selectedMessage.content}</p>
                   </Card>
                 </div>
                 <div>
-                  <Label>Verdict</Label>
+                  <Label className="text-sm font-bold mb-3 block text-gray-700">Verdict</Label>
                   <Select value={verdict} onValueChange={setVerdict}>
-                    <SelectTrigger className="mt-2">
+                    <SelectTrigger className="mt-2 bg-white/80 backdrop-blur-sm border-2 border-gold-200/50 focus:border-gold-400/70 focus:ring-2 focus:ring-gold-300/30">
                       <SelectValue />
                     </SelectTrigger>
-                    <SelectContent>
+                    <SelectContent className="bg-white/95 backdrop-blur-xl border-2 border-gold-200/50">
                       <SelectItem value="safe">Safe - Release Original</SelectItem>
                       <SelectItem value="unsafe">Unsafe - Needs Correction</SelectItem>
                     </SelectContent>
@@ -443,35 +956,52 @@ export default function AdminDashboard() {
                 {verdict === 'unsafe' && (
                   <>
                     <div>
-                      <Label>Feedback (Required)</Label>
+                      <Label className="text-sm font-bold mb-3 block text-gray-700 flex items-center gap-2">
+                        <Shield className="h-4 w-4 text-blue-600" />
+                        Feedback (Required)
+                      </Label>
                       <Textarea
                         value={feedback}
                         onChange={(e) => setFeedback(e.target.value)}
-                        className="mt-2"
+                        className="mt-2 bg-white/80 backdrop-blur-sm border-2 border-gold-200/50 focus:border-gold-400/70 focus:ring-2 focus:ring-gold-300/30 min-h-[100px]"
                         placeholder="What was wrong with this response? This will be used to generate a corrected response."
                         disabled={generatingResponse}
                       />
-                      <p className="text-xs text-muted-foreground mt-1">
+                      <p className="text-xs text-muted-foreground mt-2 font-medium">
                         A corrected response will be automatically generated based on your feedback.
                       </p>
                     </div>
                     {generatingResponse && (
-                      <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
-                        <p className="text-sm text-blue-800">
-                          Generating corrected response using AI based on your feedback...
-                        </p>
-                      </div>
+                      <motion.div
+                        initial={{ opacity: 0, scale: 0.95 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        className="p-4 bg-gradient-to-br from-blue-50/80 to-blue-100/50 backdrop-blur-sm border-2 border-blue-300/60 rounded-lg shadow-md"
+                      >
+                        <div className="flex items-center gap-3">
+                          <motion.div
+                            animate={{ rotate: 360 }}
+                            transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+                            className="rounded-full h-5 w-5 border-2 border-blue-600 border-t-transparent"
+                          />
+                          <p className="text-sm text-blue-800 font-medium">
+                            Generating corrected response using AI based on your feedback...
+                          </p>
+                        </div>
+                      </motion.div>
                     )}
                     {correctedResponse && !generatingResponse && (
                       <div>
-                        <Label>Generated Corrected Response</Label>
+                        <Label className="text-sm font-bold mb-3 block text-gray-700 flex items-center gap-2">
+                          <Sparkles className="h-4 w-4 text-green-600" />
+                          Generated Corrected Response
+                        </Label>
                         <Textarea
                           value={correctedResponse}
                           onChange={(e) => setCorrectedResponse(e.target.value)}
-                          className="mt-2 min-h-[120px]"
+                          className="mt-2 min-h-[150px] bg-white/80 backdrop-blur-sm border-2 border-green-300/60 focus:border-green-400/70 focus:ring-2 focus:ring-green-300/30"
                           placeholder="Corrected response will appear here..."
                         />
-                        <p className="text-xs text-muted-foreground mt-1">
+                        <p className="text-xs text-muted-foreground mt-2 font-medium">
                           You can edit this response if needed before submitting.
                         </p>
                       </div>
@@ -480,17 +1010,26 @@ export default function AdminDashboard() {
                 )}
               </div>
             )}
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setReviewDialogOpen(false)}>
-                Cancel
-              </Button>
-              <Button
-                variant="gold"
-                onClick={handleReview}
-                disabled={loading || generatingResponse || (verdict === 'unsafe' && !feedback.trim())}
-              >
-                {generatingResponse ? 'Generating Response...' : loading ? 'Submitting...' : 'Submit Review'}
-              </Button>
+            <DialogFooter className="border-t border-gold-200/50 pt-4 mt-4 flex-shrink-0">
+              <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
+                <Button 
+                  variant="outline" 
+                  onClick={() => setReviewDialogOpen(false)}
+                  className="bg-white/60 backdrop-blur-sm border-2 border-gold-200/50 hover:bg-white/80 hover:shadow-md hover:shadow-gold-300/30"
+                >
+                  Cancel
+                </Button>
+              </motion.div>
+              <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
+                <Button
+                  variant="gold"
+                  onClick={handleReview}
+                  disabled={loading || generatingResponse || (verdict === 'unsafe' && !feedback.trim())}
+                  className="bg-gradient-to-r from-gold-500 to-gold-600 hover:from-gold-600 hover:to-gold-700 shadow-lg shadow-gold-500/40 hover:shadow-xl hover:shadow-gold-500/50 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {generatingResponse ? 'Generating Response...' : loading ? 'Submitting...' : 'Submit Review'}
+                </Button>
+              </motion.div>
             </DialogFooter>
           </DialogContent>
         </Dialog>

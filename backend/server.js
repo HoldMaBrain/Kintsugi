@@ -655,20 +655,145 @@ app.get('/api/admin/metrics', verifyUser, verifyAdmin, async (req, res) => {
   try {
     const { data: messages } = await dbService.supabase
       .from('messages')
-      .select('risk_level, flagged, created_at');
+      .select('risk_level, flagged, created_at')
+      .order('created_at', { ascending: true });
+
+    const { data: reviews } = await dbService.supabase
+      .from('reviews')
+      .select('verdict, created_at')
+      .order('created_at', { ascending: true });
+
+    const { data: feedbackMemory } = await dbService.supabase
+      .from('feedback_memory')
+      .select('created_at')
+      .order('created_at', { ascending: true });
 
     const totalMessages = messages.length;
     const flaggedCount = messages.filter(m => m.flagged).length;
     const highRiskCount = messages.filter(m => m.risk_level === 'high').length;
     const mediumRiskCount = messages.filter(m => m.risk_level === 'medium').length;
 
-    const { data: reviews } = await dbService.supabase
-      .from('reviews')
-      .select('verdict');
-
     const unsafeCount = reviews.filter(r => r.verdict === 'unsafe').length;
     const safeCount = reviews.filter(r => r.verdict === 'safe').length;
     const correctionRate = reviews.length > 0 ? (unsafeCount / reviews.length) * 100 : 0;
+    const totalFeedback = feedbackMemory.length;
+
+    // Calculate time-based metrics to show learning over time
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const yesterday = new Date(today.getTime() - 24 * 60 * 60 * 1000);
+    const twoDaysAgo = new Date(today.getTime() - 2 * 24 * 60 * 60 * 1000);
+    const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+
+    // Group messages by day and hour for trend analysis
+    const messagesByDay = {};
+    const flaggedByDay = {};
+    const messagesByHour = {};
+    const flaggedByHour = {};
+    
+    messages.forEach(msg => {
+      const msgDate = new Date(msg.created_at);
+      const date = msgDate.toISOString().split('T')[0];
+      const hour = `${date} ${msgDate.getHours()}:00`;
+      
+      messagesByDay[date] = (messagesByDay[date] || 0) + 1;
+      messagesByHour[hour] = (messagesByHour[hour] || 0) + 1;
+      
+      if (msg.flagged) {
+        flaggedByDay[date] = (flaggedByDay[date] || 0) + 1;
+        flaggedByHour[hour] = (flaggedByHour[hour] || 0) + 1;
+      }
+    });
+
+    // Calculate day-to-day comparisons
+    const todayStr = today.toISOString().split('T')[0];
+    const yesterdayStr = yesterday.toISOString().split('T')[0];
+    const twoDaysAgoStr = twoDaysAgo.toISOString().split('T')[0];
+    
+    const todayMessages = messages.filter(m => {
+      const msgDate = new Date(m.created_at);
+      return msgDate >= today;
+    });
+    const yesterdayMessages = messages.filter(m => {
+      const msgDate = new Date(m.created_at);
+      return msgDate >= yesterday && msgDate < today;
+    });
+    const twoDaysAgoMessages = messages.filter(m => {
+      const msgDate = new Date(m.created_at);
+      return msgDate >= twoDaysAgo && msgDate < yesterday;
+    });
+    
+    const todayFlagged = todayMessages.filter(m => m.flagged).length;
+    const yesterdayFlagged = yesterdayMessages.filter(m => m.flagged).length;
+    const twoDaysAgoFlagged = twoDaysAgoMessages.filter(m => m.flagged).length;
+    
+    const todayFlaggedRate = todayMessages.length > 0 ? (todayFlagged / todayMessages.length) * 100 : 0;
+    const yesterdayFlaggedRate = yesterdayMessages.length > 0 ? (yesterdayFlagged / yesterdayMessages.length) * 100 : 0;
+    const twoDaysAgoFlaggedRate = twoDaysAgoMessages.length > 0 ? (twoDaysAgoFlagged / twoDaysAgoMessages.length) * 100 : 0;
+    
+    // Day-to-day improvement
+    const dayToDayImprovement = yesterdayFlaggedRate > 0 
+      ? ((yesterdayFlaggedRate - todayFlaggedRate) / yesterdayFlaggedRate) * 100 
+      : 0;
+    
+    // 2-day improvement (comparing today to 2 days ago)
+    const twoDayImprovement = twoDaysAgoFlaggedRate > 0 
+      ? ((twoDaysAgoFlaggedRate - todayFlaggedRate) / twoDaysAgoFlaggedRate) * 100 
+      : 0;
+
+    // Get last 30 days of daily data for chart
+    const dailyData = [];
+    for (let i = 29; i >= 0; i--) {
+      const date = new Date(now.getTime() - i * 24 * 60 * 60 * 1000);
+      const dateStr = date.toISOString().split('T')[0];
+      const total = messagesByDay[dateStr] || 0;
+      const flagged = flaggedByDay[dateStr] || 0;
+      const flaggedRate = total > 0 ? (flagged / total) * 100 : 0;
+      
+      dailyData.push({
+        date: dateStr,
+        total,
+        flagged,
+        flaggedRate
+      });
+    }
+
+    // Get last 24 hours of hourly data for chart
+    const hourlyData = [];
+    for (let i = 23; i >= 0; i--) {
+      const hourDate = new Date(now.getTime() - i * 60 * 60 * 1000);
+      const dateStr = hourDate.toISOString().split('T')[0];
+      const hour = `${dateStr} ${hourDate.getHours()}:00`;
+      const total = messagesByHour[hour] || 0;
+      const flagged = flaggedByHour[hour] || 0;
+      const flaggedRate = total > 0 ? (flagged / total) * 100 : 0;
+      
+      hourlyData.push({
+        hour: hourDate.getHours(),
+        hourLabel: hourDate.toLocaleTimeString('en-US', { hour: 'numeric', hour12: true }),
+        date: dateStr,
+        total,
+        flagged,
+        flaggedRate
+      });
+    }
+
+    // Calculate feedback provided over time
+    const feedbackByDay = {};
+    feedbackMemory.forEach(fb => {
+      const date = new Date(fb.created_at).toISOString().split('T')[0];
+      feedbackByDay[date] = (feedbackByDay[date] || 0) + 1;
+    });
+
+    const feedbackDailyData = [];
+    for (let i = 29; i >= 0; i--) {
+      const date = new Date(now.getTime() - i * 24 * 60 * 60 * 1000);
+      const dateStr = date.toISOString().split('T')[0];
+      feedbackDailyData.push({
+        date: dateStr,
+        count: feedbackByDay[dateStr] || 0
+      });
+    }
 
     res.json({
       totalMessages,
@@ -677,7 +802,24 @@ app.get('/api/admin/metrics', verifyUser, verifyAdmin, async (req, res) => {
       mediumRiskCount,
       flaggedPercentage: totalMessages > 0 ? (flaggedCount / totalMessages) * 100 : 0,
       correctionRate,
-      totalReviews: reviews.length
+      totalReviews: reviews.length,
+      totalFeedback,
+      // Day-to-day learning metrics
+      todayFlaggedRate,
+      yesterdayFlaggedRate,
+      twoDaysAgoFlaggedRate,
+      dayToDayImprovement,
+      twoDayImprovement,
+      todayMessagesCount: todayMessages.length,
+      yesterdayMessagesCount: yesterdayMessages.length,
+      twoDaysAgoMessagesCount: twoDaysAgoMessages.length,
+      todayFlaggedCount: todayFlagged,
+      yesterdayFlaggedCount: yesterdayFlagged,
+      twoDaysAgoFlaggedCount: twoDaysAgoFlagged,
+      // Time series data
+      dailyData,
+      hourlyData,
+      feedbackDailyData
     });
   } catch (error) {
     console.error('Error fetching metrics:', error);
