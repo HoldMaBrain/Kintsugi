@@ -5,6 +5,7 @@ let sessionCache = null;
 let sessionCacheTime = 0;
 let sessionPromise = null; // Track ongoing session fetch
 const SESSION_CACHE_DURATION = 2000; // 2 second cache
+const SESSION_FETCH_TIMEOUT = 3000; // 3 second timeout for session fetch
 
 async function getAuthHeaders() {
   try {
@@ -19,28 +20,71 @@ async function getAuthHeaders() {
 
     // If there's already a session fetch in progress, wait for it
     if (sessionPromise) {
-      const result = await sessionPromise;
-      if (result) {
-        return {
-          'Content-Type': 'application/json',
-          'x-user-email': result.email,
-        };
+      try {
+        const result = await sessionPromise;
+        if (result) {
+          return {
+            'Content-Type': 'application/json',
+            'x-user-email': result.email,
+          };
+        }
+      } catch (err) {
+        // If the shared promise failed, we'll try again below
+        sessionPromise = null;
       }
     }
 
-    // Start new session fetch
+    // Start new session fetch with timeout
     sessionPromise = (async () => {
       try {
-        const { data: { session }, error } = await supabase.auth.getSession();
+        // Add timeout to prevent hanging on expired sessions
+        const sessionFetch = supabase.auth.getSession();
+        const timeoutPromise = new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Session fetch timeout')), SESSION_FETCH_TIMEOUT)
+        );
+        
+        const { data: { session }, error } = await Promise.race([
+          sessionFetch,
+          timeoutPromise
+        ]);
         
         if (error) {
           console.error('🔐 [API] Error getting session:', error);
-          throw new Error('Failed to get session');
+          throw new Error('Failed to get session: ' + error.message);
         }
         
         if (!session || !session.user) {
-          console.error('🔐 [API] No session found');
-          throw new Error('Not authenticated');
+          console.error('🔐 [API] No session found - session may have expired');
+          // Try to refresh the session
+          try {
+            const { data: { session: refreshedSession }, error: refreshError } = await supabase.auth.refreshSession();
+            if (refreshError || !refreshedSession) {
+              throw new Error('Session expired. Please sign in again.');
+            }
+            // Use refreshed session
+            sessionCache = { email: refreshedSession.user.email };
+            sessionCacheTime = Date.now();
+            return { email: refreshedSession.user.email };
+          } catch (refreshErr) {
+            throw new Error('Session expired. Please sign in again.');
+          }
+        }
+        
+        // Check if session is expired
+        const expiresAt = session.expires_at;
+        if (expiresAt && expiresAt * 1000 < Date.now()) {
+          console.warn('🔐 [API] Session expired, attempting refresh...');
+          try {
+            const { data: { session: refreshedSession }, error: refreshError } = await supabase.auth.refreshSession();
+            if (refreshError || !refreshedSession) {
+              throw new Error('Session expired. Please sign in again.');
+            }
+            sessionCache = { email: refreshedSession.user.email };
+            sessionCacheTime = Date.now();
+            return { email: refreshedSession.user.email };
+          } catch (refreshErr) {
+            throw new Error('Session expired. Please sign in again.');
+          }
         }
         
         // Cache the session
@@ -70,6 +114,13 @@ async function getAuthHeaders() {
     sessionCacheTime = 0;
     sessionPromise = null;
     console.error('🔐 [API] Error in getAuthHeaders:', error);
+    
+    // If it's a session expiration error, redirect to login
+    if (error.message.includes('expired') || error.message.includes('timeout')) {
+      // Clear the session cache and let the auth context handle re-authentication
+      window.location.href = '/';
+    }
+    
     throw error;
   }
 }

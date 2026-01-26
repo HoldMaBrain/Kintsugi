@@ -11,7 +11,7 @@ export function AuthProvider({ children }) {
   useEffect(() => {
     let mounted = true;
     
-    // Get initial session with timeout
+    // Get initial session - don't wait for backend
     const initAuth = async () => {
       try {
         const { data: { session }, error } = await supabase.auth.getSession();
@@ -21,8 +21,23 @@ export function AuthProvider({ children }) {
           return;
         }
         
-        if (session) {
-          await loadUser(session.user.email);
+        if (session && session.user) {
+          // Immediately set user from session to enable redirect
+          // Backend user data will be loaded in background
+          if (mounted) {
+            setUser({
+              id: session.user.id,
+              email: session.user.email,
+              role: 'user', // Default, will be updated by backend
+            });
+            setLoading(false); // Set loading false immediately for redirect
+          }
+          
+          // Load full user data from backend in background (non-blocking)
+          loadUser(session.user.email).catch(err => {
+            console.warn('Background user load failed:', err);
+            // User is already set from session, so this is fine
+          });
         } else {
           if (mounted) setLoading(false);
         }
@@ -32,13 +47,13 @@ export function AuthProvider({ children }) {
       }
     };
 
-    // Set a timeout to prevent infinite loading
+    // Set a shorter timeout to prevent infinite loading
     const timeout = setTimeout(() => {
       if (mounted) {
         console.warn('Auth loading timeout - setting loading to false');
         setLoading(false);
       }
-    }, 5000); // 5 second timeout
+    }, 2000); // 2 second timeout (reduced from 5)
 
     initAuth();
 
@@ -47,8 +62,21 @@ export function AuthProvider({ children }) {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(async (event, session) => {
       console.log('Auth state changed:', event, session?.user?.email);
-      if (session) {
-        await loadUser(session.user.email);
+      if (session && session.user) {
+        // Immediately set user from session for instant redirect
+        if (mounted) {
+          setUser({
+            id: session.user.id,
+            email: session.user.email,
+            role: 'user', // Default, will be updated by backend
+          });
+          setLoading(false);
+        }
+        
+        // Load full user data from backend in background
+        loadUser(session.user.email).catch(err => {
+          console.warn('Background user load failed:', err);
+        });
       } else {
         if (mounted) {
           setUser(null);
@@ -66,29 +94,23 @@ export function AuthProvider({ children }) {
 
   async function loadUser(email) {
     try {
-      const { user: userData } = await getUser();
+      // Add timeout to getUser to prevent hanging
+      const getUserPromise = getUser();
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('getUser timeout')), 3000)
+      );
+      
+      const { user: userData } = await Promise.race([
+        getUserPromise,
+        timeoutPromise
+      ]);
+      
       setUser(userData);
-      setLoading(false);
+      // Don't set loading here - it's already set to false in initAuth
     } catch (error) {
-      console.error('Error loading user:', error);
-      // If backend is not available or user doesn't exist yet, create user from session
-      // This handles the case where user exists in Supabase Auth but not in our DB yet
-      try {
-        // Try to get session again to ensure we have the email
-        const { data: { session } } = await supabase.auth.getSession();
-        if (session?.user?.email) {
-          // User is authenticated but not in our DB - this will be handled by backend on first API call
-          // For now, set a temporary user object so we don't get stuck
-          setUser({
-            id: session.user.id,
-            email: session.user.email,
-            role: 'user', // Default role, will be updated by backend
-          });
-        }
-      } catch (sessionError) {
-        console.error('Error getting session:', sessionError);
-      }
-      setLoading(false);
+      console.warn('Error loading user from backend:', error);
+      // If backend fails, user is already set from session in initAuth
+      // This is fine - backend will create/update user on first API call
     }
   }
 

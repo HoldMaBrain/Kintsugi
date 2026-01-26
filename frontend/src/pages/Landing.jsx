@@ -10,11 +10,13 @@ export default function Landing() {
   const navigate = useNavigate();
 
   // Redirect to chat if user is already authenticated
+  // Check immediately without waiting for loading to complete
   useEffect(() => {
-    if (!loading && user) {
+    if (user) {
+      // User is authenticated, redirect immediately
       navigate('/chat', { replace: true });
     }
-  }, [user, loading, navigate]);
+  }, [user, navigate]);
 
   const handleGetStarted = () => {
     if (user) {

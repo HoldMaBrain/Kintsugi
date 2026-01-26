@@ -184,11 +184,26 @@ export default function Chat() {
         message: error.message,
         stack: error.stack
       });
-      toast({
-        title: 'Error',
-        description: error.message || 'Failed to send message. Please try again.',
-        variant: 'destructive',
-      });
+      
+      // Check if it's a session expiration error
+      if (error.message.includes('expired') || error.message.includes('timeout') || error.message.includes('Not authenticated')) {
+        toast({
+          title: 'Session Expired',
+          description: 'Your session has expired. Please sign in again.',
+          variant: 'destructive',
+        });
+        // Redirect to landing page after a short delay
+        setTimeout(() => {
+          navigate('/');
+        }, 2000);
+      } else {
+        toast({
+          title: 'Error',
+          description: error.message || 'Failed to send message. Please try again.',
+          variant: 'destructive',
+        });
+      }
+      
       // Remove the user message on error
       setMessages((prev) => prev.filter(m => m.id !== newUserMessage.id));
     } finally {
