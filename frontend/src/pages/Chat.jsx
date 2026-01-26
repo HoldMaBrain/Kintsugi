@@ -10,6 +10,7 @@ import { Loader2, Send, Trash2, LogOut, User } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { createConversation, sendMessage, getConversation, deleteConversation, getConversations } from '@/lib/api';
 import { useToast } from '@/components/ui/use-toast';
+import ReactMarkdown from 'react-markdown';
 
 export default function Chat() {
   const { user, signOut, loading: authLoading } = useAuth();
@@ -312,7 +313,27 @@ export default function Chat() {
               )}
               <div className={`max-w-[80%] ${message.sender === 'user' ? 'order-2' : ''}`}>
                 <Card className={`p-4 ${message.sender === 'user' ? 'bg-gold-50 border-gold-200' : 'bg-white'}`}>
-                  <p className="text-sm whitespace-pre-wrap">{message.content}</p>
+                  {message.sender === 'ai' ? (
+                    <div className="text-sm prose prose-sm max-w-none">
+                      <ReactMarkdown
+                        components={{
+                          p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
+                          ul: ({ children }) => <ul className="list-disc list-inside mb-2 space-y-1">{children}</ul>,
+                          ol: ({ children }) => <ol className="list-decimal list-inside mb-2 space-y-1">{children}</ol>,
+                          li: ({ children }) => <li className="ml-2">{children}</li>,
+                          strong: ({ children }) => <strong className="font-semibold text-gray-900">{children}</strong>,
+                          em: ({ children }) => <em className="italic">{children}</em>,
+                          h1: ({ children }) => <h3 className="text-base font-semibold mb-2 mt-3 first:mt-0">{children}</h3>,
+                          h2: ({ children }) => <h4 className="text-sm font-semibold mb-1.5 mt-2.5 first:mt-0">{children}</h4>,
+                          h3: ({ children }) => <h5 className="text-sm font-medium mb-1 mt-2 first:mt-0">{children}</h5>,
+                        }}
+                      >
+                        {message.content}
+                      </ReactMarkdown>
+                    </div>
+                  ) : (
+                    <p className="text-sm whitespace-pre-wrap">{message.content}</p>
+                  )}
                   {message.risk_level && message.risk_level !== 'info' && (
                     <Badge variant={getRiskBadgeVariant(message.risk_level)} className="mt-2">
                       {message.risk_level.toUpperCase()}
