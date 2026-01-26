@@ -603,19 +603,21 @@ Corrected Response:`;
     }
 
     // Update message
+    // Note: We keep flagged=true to preserve historical metrics
+    // The finalized field indicates it's been reviewed
     console.log('[Review] Updating message...');
     try {
       if (finalResponse) {
         await dbService.updateMessage(messageId, {
           content: finalResponse,
-          finalized: true,
-          flagged: false
+          finalized: true
+          // Keep flagged=true to preserve historical flagged count
         });
         console.log('[Review] Message updated with corrected response');
       } else {
         await dbService.updateMessage(messageId, {
-          finalized: true,
-          flagged: false
+          finalized: true
+          // Keep flagged=true to preserve historical flagged count
         });
         console.log('[Review] Message marked as finalized');
       }
@@ -658,10 +660,34 @@ app.get('/api/admin/metrics', verifyUser, verifyAdmin, async (req, res) => {
       .select('risk_level, flagged, created_at')
       .order('created_at', { ascending: true });
 
+    // Get reviews with their associated message data to preserve historical flagged counts
     const { data: reviews } = await dbService.supabase
       .from('reviews')
-      .select('verdict, created_at')
+      .select('verdict, created_at, message_id')
       .order('created_at', { ascending: true });
+    
+    // Get message IDs from reviews and fetch their created_at dates
+    const reviewedMessageIds = reviews ? reviews.map(r => r.message_id) : [];
+    const reviewedMessagesData = reviewedMessageIds.length > 0 
+      ? await dbService.supabase
+          .from('messages')
+          .select('id, created_at, risk_level')
+          .in('id', reviewedMessageIds)
+      : { data: [] };
+    
+    // Create a map of message_id to message data for quick lookup
+    const reviewedMessagesMap = {};
+    if (reviewedMessagesData.data) {
+      reviewedMessagesData.data.forEach(msg => {
+        reviewedMessagesMap[msg.id] = msg;
+      });
+    }
+    
+    // Attach message data to reviews
+    const reviewsWithMessages = reviews ? reviews.map(review => ({
+      ...review,
+      messages: reviewedMessagesMap[review.message_id] || null
+    })) : [];
 
     const { data: feedbackMemory } = await dbService.supabase
       .from('feedback_memory')
@@ -669,13 +695,22 @@ app.get('/api/admin/metrics', verifyUser, verifyAdmin, async (req, res) => {
       .order('created_at', { ascending: true });
 
     const totalMessages = messages.length;
-    const flaggedCount = messages.filter(m => m.flagged).length;
+    
+    // Count currently flagged messages
+    const currentlyFlaggedCount = messages.filter(m => m.flagged).length;
+    
+    // Count reviewed messages (these were previously flagged)
+    const reviewedCount = reviews ? reviews.length : 0;
+    
+    // Total flagged = currently flagged + reviewed (preserving historical data)
+    const flaggedCount = currentlyFlaggedCount + reviewedCount;
+    
     const highRiskCount = messages.filter(m => m.risk_level === 'high').length;
     const mediumRiskCount = messages.filter(m => m.risk_level === 'medium').length;
 
-    const unsafeCount = reviews.filter(r => r.verdict === 'unsafe').length;
-    const safeCount = reviews.filter(r => r.verdict === 'safe').length;
-    const correctionRate = reviews.length > 0 ? (unsafeCount / reviews.length) * 100 : 0;
+    const unsafeCount = reviewsWithMessages ? reviewsWithMessages.filter(r => r.verdict === 'unsafe').length : 0;
+    const safeCount = reviewsWithMessages ? reviewsWithMessages.filter(r => r.verdict === 'safe').length : 0;
+    const correctionRate = reviewsWithMessages && reviewsWithMessages.length > 0 ? (unsafeCount / reviewsWithMessages.length) * 100 : 0;
     const totalFeedback = feedbackMemory.length;
 
     // Calculate time-based metrics to show learning over time
@@ -691,6 +726,7 @@ app.get('/api/admin/metrics', verifyUser, verifyAdmin, async (req, res) => {
     const messagesByHour = {};
     const flaggedByHour = {};
     
+    // Count currently flagged messages by day/hour
     messages.forEach(msg => {
       const msgDate = new Date(msg.created_at);
       const date = msgDate.toISOString().split('T')[0];
@@ -704,6 +740,22 @@ app.get('/api/admin/metrics', verifyUser, verifyAdmin, async (req, res) => {
         flaggedByHour[hour] = (flaggedByHour[hour] || 0) + 1;
       }
     });
+    
+    // Add reviewed messages to flagged counts (preserve historical data)
+    // Reviews represent messages that were previously flagged
+    if (reviewsWithMessages) {
+      reviewsWithMessages.forEach(review => {
+        if (review.messages && review.messages.created_at) {
+          const msgDate = new Date(review.messages.created_at);
+          const date = msgDate.toISOString().split('T')[0];
+          const hour = `${date} ${msgDate.getHours()}:00`;
+          
+          // Add to flagged counts for the day/hour when the original message was created
+          flaggedByDay[date] = (flaggedByDay[date] || 0) + 1;
+          flaggedByHour[hour] = (flaggedByHour[hour] || 0) + 1;
+        }
+      });
+    }
 
     // Calculate day-to-day comparisons
     const todayStr = today.toISOString().split('T')[0];
@@ -723,9 +775,35 @@ app.get('/api/admin/metrics', verifyUser, verifyAdmin, async (req, res) => {
       return msgDate >= twoDaysAgo && msgDate < yesterday;
     });
     
-    const todayFlagged = todayMessages.filter(m => m.flagged).length;
-    const yesterdayFlagged = yesterdayMessages.filter(m => m.flagged).length;
-    const twoDaysAgoFlagged = twoDaysAgoMessages.filter(m => m.flagged).length;
+    // Count currently flagged messages for each day
+    const todayFlaggedCurrent = todayMessages.filter(m => m.flagged).length;
+    const yesterdayFlaggedCurrent = yesterdayMessages.filter(m => m.flagged).length;
+    const twoDaysAgoFlaggedCurrent = twoDaysAgoMessages.filter(m => m.flagged).length;
+    
+    // Add reviewed messages to the counts (preserve historical data)
+    // Count reviews for messages created on each day
+    const todayReviewed = reviewsWithMessages ? reviewsWithMessages.filter(r => {
+      if (!r.messages || !r.messages.created_at) return false;
+      const msgDate = new Date(r.messages.created_at);
+      return msgDate >= today;
+    }).length : 0;
+    
+    const yesterdayReviewed = reviewsWithMessages ? reviewsWithMessages.filter(r => {
+      if (!r.messages || !r.messages.created_at) return false;
+      const msgDate = new Date(r.messages.created_at);
+      return msgDate >= yesterday && msgDate < today;
+    }).length : 0;
+    
+    const twoDaysAgoReviewed = reviewsWithMessages ? reviewsWithMessages.filter(r => {
+      if (!r.messages || !r.messages.created_at) return false;
+      const msgDate = new Date(r.messages.created_at);
+      return msgDate >= twoDaysAgo && msgDate < yesterday;
+    }).length : 0;
+    
+    // Total flagged = currently flagged + reviewed
+    const todayFlagged = todayFlaggedCurrent + todayReviewed;
+    const yesterdayFlagged = yesterdayFlaggedCurrent + yesterdayReviewed;
+    const twoDaysAgoFlagged = twoDaysAgoFlaggedCurrent + twoDaysAgoReviewed;
     
     const todayFlaggedRate = todayMessages.length > 0 ? (todayFlagged / todayMessages.length) * 100 : 0;
     const yesterdayFlaggedRate = yesterdayMessages.length > 0 ? (yesterdayFlagged / yesterdayMessages.length) * 100 : 0;
@@ -802,7 +880,7 @@ app.get('/api/admin/metrics', verifyUser, verifyAdmin, async (req, res) => {
       mediumRiskCount,
       flaggedPercentage: totalMessages > 0 ? (flaggedCount / totalMessages) * 100 : 0,
       correctionRate,
-      totalReviews: reviews.length,
+      totalReviews: reviewsWithMessages ? reviewsWithMessages.length : 0,
       totalFeedback,
       // Day-to-day learning metrics
       todayFlaggedRate,
