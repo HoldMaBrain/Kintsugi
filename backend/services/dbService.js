@@ -194,36 +194,95 @@ export class DatabaseService {
     return data || [];
   }
 
-  async createReview(messageId, adminId, verdict, feedback = null, correctedResponse = null) {
-    const { data, error } = await this.supabase
-      .from('reviews')
-      .insert({
-        message_id: messageId,
-        admin_id: adminId,
-        verdict,
-        feedback,
-        corrected_response: correctedResponse
-      })
-      .select()
-      .single();
-    
-    if (error) throw error;
-    return data;
+  async createReview(messageId, adminId, verdict, feedback = null, correctedResponse = null, originalResponse = null) {
+    try {
+      // Try to insert with all columns
+      const { data, error } = await this.supabase
+        .from('reviews')
+        .insert({
+          message_id: messageId,
+          admin_id: adminId,
+          verdict,
+          feedback,
+          corrected_response: correctedResponse,
+          original_response: originalResponse
+        })
+        .select(`
+          *,
+          users!reviews_admin_id_fkey(*)
+        `)
+        .single();
+      
+      if (error) {
+        // If original_response column doesn't exist, try without it
+        if (error.code === '42703' || error.message.includes('original_response') || error.message.includes('does not exist')) {
+          console.warn('[dbService] original_response column may not exist, storing without it:', error.message);
+          const { data: fallbackData, error: fallbackError } = await this.supabase
+            .from('reviews')
+            .insert({
+              message_id: messageId,
+              admin_id: adminId,
+              verdict,
+              feedback,
+              corrected_response: correctedResponse
+            })
+            .select(`
+              *,
+              users!reviews_admin_id_fkey(*)
+            `)
+            .single();
+          
+          if (fallbackError) throw fallbackError;
+          return fallbackData;
+        }
+        throw error;
+      }
+      return data;
+    } catch (error) {
+      console.error('[dbService] Error creating review:', error);
+      throw error;
+    }
   }
 
-  async addFeedbackMemory(issueType, pattern, humanFeedback) {
-    const { data, error } = await this.supabase
-      .from('feedback_memory')
-      .insert({
-        issue_type: issueType,
-        pattern,
-        human_feedback: humanFeedback
-      })
-      .select()
-      .single();
-    
-    if (error) throw error;
-    return data;
+  async addFeedbackMemory(issueType, userPrompt, humanFeedback, unsafeResponse = null, correctedResponse = null) {
+    try {
+      // Try to insert with all columns
+      const { data, error } = await this.supabase
+        .from('feedback_memory')
+        .insert({
+          issue_type: issueType,
+          pattern: userPrompt, // Store the user prompt/pattern
+          human_feedback: humanFeedback,
+          unsafe_response: unsafeResponse, // Store the unsafe AI response
+          corrected_response: correctedResponse // Store the corrected response
+        })
+        .select()
+        .single();
+      
+      if (error) {
+        // If columns don't exist, try without them
+        if (error.code === '42703' || error.message.includes('column') || error.message.includes('does not exist')) {
+          console.warn('[dbService] Feedback memory columns may not exist, storing without them:', error.message);
+          const { data: fallbackData, error: fallbackError } = await this.supabase
+            .from('feedback_memory')
+            .insert({
+              issue_type: issueType,
+              pattern: userPrompt,
+              human_feedback: humanFeedback
+            })
+            .select()
+            .single();
+          
+          if (fallbackError) throw fallbackError;
+          return fallbackData;
+        }
+        throw error;
+      }
+      return data;
+    } catch (error) {
+      console.error('[dbService] Error adding feedback memory:', error);
+      throw error;
+    }
   }
 
   async getFeedbackMemory(limit = 10) {
@@ -235,6 +294,38 @@ export class DatabaseService {
     
     if (error) throw error;
     return data || [];
+  }
+
+  async getReviewedMessages() {
+    // Get messages that have been reviewed (have a review record)
+    const { data: reviews, error: reviewsError } = await this.supabase
+      .from('reviews')
+      .select(`
+        *,
+        messages!inner(
+          *,
+          conversations(
+            *,
+            users(*),
+            messages(*)
+          )
+        ),
+        users!reviews_admin_id_fkey(*)
+      `)
+      .order('created_at', { ascending: false });
+    
+    if (reviewsError) throw reviewsError;
+    
+    // Transform to return messages with their reviews
+    const messages = (reviews || []).map(review => ({
+      ...review.messages,
+      reviews: [{
+        ...review,
+        users: review.users
+      }]
+    }));
+    
+    return messages || [];
   }
 
   async deleteConversation(conversationId, userId) {

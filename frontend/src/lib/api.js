@@ -301,3 +301,10 @@ export async function getMetrics() {
   if (!response.ok) throw new Error('Failed to get metrics');
   return response.json();
 }
+
+export async function getReviewedMessages() {
+  const headers = await getAuthHeaders();
+  const response = await fetch('/api/admin/reviewed', { headers });
+  if (!response.ok) throw new Error('Failed to get reviewed messages');
+  return response.json();
+}

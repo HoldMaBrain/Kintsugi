@@ -11,7 +11,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { ArrowLeft, Shield, TrendingUp, AlertTriangle, CheckCircle } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { getFlaggedMessages, reviewMessage, getMetrics } from '@/lib/api';
+import { getFlaggedMessages, reviewMessage, getMetrics, getReviewedMessages } from '@/lib/api';
 import { useToast } from '@/components/ui/use-toast';
 
 export default function AdminDashboard() {
@@ -19,6 +19,7 @@ export default function AdminDashboard() {
   const navigate = useNavigate();
   const { toast } = useToast();
   const [flaggedMessages, setFlaggedMessages] = useState([]);
+  const [reviewedMessages, setReviewedMessages] = useState([]);
   const [metrics, setMetrics] = useState(null);
   const [selectedMessage, setSelectedMessage] = useState(null);
   const [reviewDialogOpen, setReviewDialogOpen] = useState(false);
@@ -26,6 +27,7 @@ export default function AdminDashboard() {
   const [feedback, setFeedback] = useState('');
   const [correctedResponse, setCorrectedResponse] = useState('');
   const [loading, setLoading] = useState(false);
+  const [generatingResponse, setGeneratingResponse] = useState(false);
 
   useEffect(() => {
     if (!user || user.role !== 'admin') {
@@ -33,20 +35,31 @@ export default function AdminDashboard() {
       return;
     }
     loadData();
-    const interval = setInterval(loadData, 10000); // Refresh every 10 seconds
+    // Increase refresh interval to 30 seconds to reduce API calls
+    const interval = setInterval(loadData, 30000); // Refresh every 30 seconds
     return () => clearInterval(interval);
   }, [user]);
 
   async function loadData() {
     try {
-      const [flaggedRes, metricsRes] = await Promise.all([
+      const [flaggedRes, reviewedRes, metricsRes] = await Promise.all([
         getFlaggedMessages(),
+        getReviewedMessages(),
         getMetrics(),
       ]);
       setFlaggedMessages(flaggedRes.messages || []);
+      setReviewedMessages(reviewedRes.messages || []);
       setMetrics(metricsRes);
     } catch (error) {
       console.error('Error loading data:', error);
+      // Don't show toast for rate limit errors during auto-refresh
+      if (!error.message.includes('429') && !error.message.includes('Too many requests')) {
+        toast({
+          title: 'Error',
+          description: 'Failed to load dashboard data',
+          variant: 'destructive',
+        });
+      }
     }
   }
 
@@ -61,28 +74,56 @@ export default function AdminDashboard() {
   async function handleReview() {
     if (!selectedMessage) return;
     setLoading(true);
+    setGeneratingResponse(verdict === 'unsafe');
     try {
-      await reviewMessage(
+      const result = await reviewMessage(
         selectedMessage.id,
         verdict,
         feedback || null,
         verdict === 'unsafe' ? correctedResponse : null
       );
-      toast({
-        title: 'Success',
-        description: 'Review submitted successfully',
-      });
+      
+      if (result.correctedResponse && verdict === 'unsafe') {
+        // Update the corrected response in the dialog
+        setCorrectedResponse(result.correctedResponse);
+        toast({
+          title: 'Success',
+          description: 'Corrected response generated and saved. Review submitted successfully.',
+        });
+      } else {
+        toast({
+          title: 'Success',
+          description: 'Review submitted successfully',
+        });
+      }
       setReviewDialogOpen(false);
-      await loadData();
+      // Add a small delay before reloading to avoid rate limit issues
+      setTimeout(async () => {
+        await loadData();
+      }, 500);
     } catch (error) {
       console.error('Error reviewing message:', error);
-      toast({
-        title: 'Error',
-        description: 'Failed to submit review',
-        variant: 'destructive',
-      });
+      // Handle rate limit errors specifically
+      if (error.message.includes('429') || error.message.includes('Too many requests')) {
+        toast({
+          title: 'Rate Limit',
+          description: 'Too many requests. Please wait a moment and try again.',
+          variant: 'destructive',
+        });
+        // Still reload data after a delay
+        setTimeout(async () => {
+          await loadData();
+        }, 2000);
+      } else {
+        toast({
+          title: 'Error',
+          description: error.message || 'Failed to submit review',
+          variant: 'destructive',
+        });
+      }
     } finally {
       setLoading(false);
+      setGeneratingResponse(false);
     }
   }
 
@@ -123,6 +164,9 @@ export default function AdminDashboard() {
           <TabsList>
             <TabsTrigger value="flagged">
               Flagged Messages ({flaggedMessages.length})
+            </TabsTrigger>
+            <TabsTrigger value="reviewed">
+              Reviewed Messages ({reviewedMessages.length})
             </TabsTrigger>
             <TabsTrigger value="metrics">Metrics</TabsTrigger>
           </TabsList>
@@ -191,6 +235,113 @@ export default function AdminDashboard() {
                   </Card>
                 </motion.div>
               ))
+            )}
+          </TabsContent>
+
+          <TabsContent value="reviewed" className="space-y-4">
+            {reviewedMessages.length === 0 ? (
+              <Card>
+                <CardContent className="py-12 text-center">
+                  <CheckCircle className="h-12 w-12 text-green-500 mx-auto mb-4" />
+                  <p className="text-muted-foreground">No reviewed messages yet</p>
+                </CardContent>
+              </Card>
+            ) : (
+              reviewedMessages.map((item) => {
+                const review = item.reviews?.[0];
+                return (
+                  <motion.div
+                    key={item.id}
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                  >
+                    <Card className="hover:shadow-lg transition-shadow">
+                      <CardHeader>
+                        <div className="flex items-start justify-between">
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2 mb-2">
+                              <CardTitle className="text-lg">Reviewed Message</CardTitle>
+                              <Badge variant={review?.verdict === 'unsafe' ? 'danger' : 'success'}>
+                                {review?.verdict === 'unsafe' ? 'UNSAFE' : 'SAFE'}
+                              </Badge>
+                              {item.risk_level && (
+                                <Badge variant={getRiskBadgeVariant(item.risk_level)}>
+                                  {item.risk_level.toUpperCase()}
+                                </Badge>
+                              )}
+                            </div>
+                            <CardDescription>
+                              User: {item.conversations?.users?.email || 'Unknown'} •{' '}
+                              Reviewed by: {review?.users?.email || 'Unknown'} •{' '}
+                              {new Date(item.created_at).toLocaleString()}
+                            </CardDescription>
+                          </div>
+                        </div>
+                      </CardHeader>
+                      <CardContent className="space-y-4">
+                        <div>
+                          <Label className="text-sm font-semibold mb-2 block">User Message:</Label>
+                          <Card className="p-3 bg-muted/50">
+                            <p className="text-sm">
+                              {(() => {
+                                const conversation = item.conversations;
+                                const messages = conversation?.messages || [];
+                                const userMessage = messages
+                                  .filter(m => m.sender === 'user')
+                                  .sort((a, b) => new Date(a.created_at) - new Date(b.created_at))
+                                  .find((m, idx, arr) => {
+                                    const aiMessageIndex = messages.findIndex(msg => msg.id === item.id);
+                                    const userMessageIndex = messages.findIndex(msg => msg.id === m.id);
+                                    return userMessageIndex < aiMessageIndex && userMessageIndex >= aiMessageIndex - 1;
+                                  }) || messages
+                                    .filter(m => m.sender === 'user')
+                                    .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))[0];
+                                return userMessage?.content || 'N/A';
+                              })()}
+                            </p>
+                          </Card>
+                        </div>
+                        <div>
+                          <Label className="text-sm font-semibold mb-2 block">AI Response (Final):</Label>
+                          <Card className="p-3 bg-green-50 border-green-200">
+                            <p className="text-sm">{item.content}</p>
+                          </Card>
+                        </div>
+                        {review?.feedback && (
+                          <div>
+                            <Label className="text-sm font-semibold mb-2 block">Admin Feedback:</Label>
+                            <Card className="p-3 bg-blue-50 border-blue-200">
+                              <p className="text-sm">{review.feedback}</p>
+                            </Card>
+                          </div>
+                        )}
+                        {review?.verdict === 'unsafe' && (
+                          <>
+                            {review.original_response && (
+                              <div>
+                                <Label className="text-sm font-semibold mb-2 block">Original Unsafe Response:</Label>
+                                <Card className="p-3 bg-red-50 border-red-200">
+                                  <p className="text-sm line-through text-muted-foreground">
+                                    {review.original_response}
+                                  </p>
+                                </Card>
+                              </div>
+                            )}
+                            {review.corrected_response && (
+                              <div>
+                                <Label className="text-sm font-semibold mb-2 block">Corrected Response:</Label>
+                                <Card className="p-3 bg-green-50 border-green-200">
+                                  <p className="text-sm">{review.corrected_response}</p>
+                                </Card>
+                              </div>
+                            )}
+                          </>
+                        )}
+                      </CardContent>
+                    </Card>
+                  </motion.div>
+                );
+              })
             )}
           </TabsContent>
 
@@ -292,23 +443,39 @@ export default function AdminDashboard() {
                 {verdict === 'unsafe' && (
                   <>
                     <div>
-                      <Label>Corrected Response</Label>
-                      <Textarea
-                        value={correctedResponse}
-                        onChange={(e) => setCorrectedResponse(e.target.value)}
-                        className="mt-2 min-h-[120px]"
-                        placeholder="Enter the corrected response..."
-                      />
-                    </div>
-                    <div>
-                      <Label>Feedback (Optional)</Label>
+                      <Label>Feedback (Required)</Label>
                       <Textarea
                         value={feedback}
                         onChange={(e) => setFeedback(e.target.value)}
                         className="mt-2"
-                        placeholder="What was wrong with this response?"
+                        placeholder="What was wrong with this response? This will be used to generate a corrected response."
+                        disabled={generatingResponse}
                       />
+                      <p className="text-xs text-muted-foreground mt-1">
+                        A corrected response will be automatically generated based on your feedback.
+                      </p>
                     </div>
+                    {generatingResponse && (
+                      <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                        <p className="text-sm text-blue-800">
+                          Generating corrected response using AI based on your feedback...
+                        </p>
+                      </div>
+                    )}
+                    {correctedResponse && !generatingResponse && (
+                      <div>
+                        <Label>Generated Corrected Response</Label>
+                        <Textarea
+                          value={correctedResponse}
+                          onChange={(e) => setCorrectedResponse(e.target.value)}
+                          className="mt-2 min-h-[120px]"
+                          placeholder="Corrected response will appear here..."
+                        />
+                        <p className="text-xs text-muted-foreground mt-1">
+                          You can edit this response if needed before submitting.
+                        </p>
+                      </div>
+                    )}
                   </>
                 )}
               </div>
@@ -320,9 +487,9 @@ export default function AdminDashboard() {
               <Button
                 variant="gold"
                 onClick={handleReview}
-                disabled={loading || (verdict === 'unsafe' && !correctedResponse.trim())}
+                disabled={loading || generatingResponse || (verdict === 'unsafe' && !feedback.trim())}
               >
-                {loading ? 'Submitting...' : 'Submit Review'}
+                {generatingResponse ? 'Generating Response...' : loading ? 'Submitting...' : 'Submit Review'}
               </Button>
             </DialogFooter>
           </DialogContent>

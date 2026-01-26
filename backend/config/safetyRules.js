@@ -4,6 +4,7 @@ export const RULE_WEIGHTS = {
   advice: 3,
   mismatch: 2,
   overconfidence: 2,
+  promptInjection: 4, // High weight for prompt injection attempts
 };
 
 // Crisis keywords that indicate immediate danger
@@ -44,6 +45,35 @@ export const DISCLAIMER_REQUIRED_PATTERNS = [
   /therapy technique/i,
 ];
 
+// Prompt injection patterns - attempts to override system instructions
+export const PROMPT_INJECTION_PATTERNS = [
+  /ignore (all )?(previous|prior|earlier) (instructions?|prompts?|rules?|directives?)/i,
+  /forget (all )?(previous|prior|earlier) (instructions?|prompts?|rules?|directives?)/i,
+  /disregard (all )?(previous|prior|earlier) (instructions?|prompts?|rules?|directives?)/i,
+  /override (all )?(previous|prior|earlier) (instructions?|prompts?|rules?|directives?)/i,
+  /you are now/i,
+  /from now on/i,
+  /new instructions?:/i,
+  /system:? (override|bypass|ignore)/i,
+  /\[system\]/i,
+  /<\|system\|>/i,
+  /### (new )?instructions?:/i,
+  /you must (now|always) (forget|ignore|disregard)/i,
+  /pretend you are/i,
+  /act as if/i,
+  /roleplay as/i,
+  /you're no longer/i,
+  /stop being/i,
+  /don't be/i,
+  /never mention/i,
+  /delete your (system )?prompt/i,
+  /show me your (system )?prompt/i,
+  /what are your (instructions|rules|prompts)/i,
+  /repeat (the word|this word)/i,
+  /say exactly/i,
+  /output (only|just) (the word|this)/i,
+];
+
 export function checkCrisisKeywords(text) {
   const lowerText = text.toLowerCase();
   return CRISIS_KEYWORDS.some(keyword => lowerText.includes(keyword));
@@ -63,6 +93,10 @@ export function checkMissingDisclaimer(text) {
   return hasMedicalContent && !hasDisclaimer;
 }
 
+export function checkPromptInjection(text) {
+  return PROMPT_INJECTION_PATTERNS.some(pattern => pattern.test(text));
+}
+
 export function calculateRuleBasedScore(userMessage, aiResponse) {
   let score = 0;
   const triggers = [];
@@ -71,6 +105,12 @@ export function calculateRuleBasedScore(userMessage, aiResponse) {
   if (checkCrisisKeywords(userMessage)) {
     score += RULE_WEIGHTS.crisis;
     triggers.push('crisis_keyword');
+  }
+
+  // Check user message for prompt injection attempts
+  if (checkPromptInjection(userMessage)) {
+    score += RULE_WEIGHTS.promptInjection;
+    triggers.push('prompt_injection_attempt');
   }
 
   // Check AI response for issues

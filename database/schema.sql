@@ -37,6 +37,7 @@ CREATE TABLE IF NOT EXISTS reviews (
   verdict TEXT CHECK (verdict IN ('safe', 'unsafe')),
   feedback TEXT,
   corrected_response TEXT,
+  original_response TEXT, -- Store original unsafe response before correction
   created_at TIMESTAMP DEFAULT NOW()
 );
 
@@ -46,6 +47,8 @@ CREATE TABLE IF NOT EXISTS feedback_memory (
   issue_type TEXT,
   pattern TEXT,
   human_feedback TEXT,
+  unsafe_response TEXT,
+  corrected_response TEXT,
   created_at TIMESTAMP DEFAULT NOW()
 );
 
