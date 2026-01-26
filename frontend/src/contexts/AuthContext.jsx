@@ -9,37 +9,85 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Get initial session
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session) {
-        loadUser(session.user.email);
-      } else {
+    let mounted = true;
+    
+    // Get initial session with timeout
+    const initAuth = async () => {
+      try {
+        const { data: { session }, error } = await supabase.auth.getSession();
+        if (error) {
+          console.error('Error getting session:', error);
+          if (mounted) setLoading(false);
+          return;
+        }
+        
+        if (session) {
+          await loadUser(session.user.email);
+        } else {
+          if (mounted) setLoading(false);
+        }
+      } catch (error) {
+        console.error('Error initializing auth:', error);
+        if (mounted) setLoading(false);
+      }
+    };
+
+    // Set a timeout to prevent infinite loading
+    const timeout = setTimeout(() => {
+      if (mounted) {
+        console.warn('Auth loading timeout - setting loading to false');
         setLoading(false);
       }
-    });
+    }, 5000); // 5 second timeout
 
-    // Listen for auth changes
+    initAuth();
+
+    // Listen for auth changes (including OAuth callbacks)
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(async (event, session) => {
+      console.log('Auth state changed:', event, session?.user?.email);
       if (session) {
         await loadUser(session.user.email);
       } else {
-        setUser(null);
-        setLoading(false);
+        if (mounted) {
+          setUser(null);
+          setLoading(false);
+        }
       }
     });
 
-    return () => subscription.unsubscribe();
+    return () => {
+      mounted = false;
+      clearTimeout(timeout);
+      subscription.unsubscribe();
+    };
   }, []);
 
   async function loadUser(email) {
     try {
       const { user: userData } = await getUser();
       setUser(userData);
+      setLoading(false);
     } catch (error) {
       console.error('Error loading user:', error);
-    } finally {
+      // If backend is not available or user doesn't exist yet, create user from session
+      // This handles the case where user exists in Supabase Auth but not in our DB yet
+      try {
+        // Try to get session again to ensure we have the email
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session?.user?.email) {
+          // User is authenticated but not in our DB - this will be handled by backend on first API call
+          // For now, set a temporary user object so we don't get stuck
+          setUser({
+            id: session.user.id,
+            email: session.user.email,
+            role: 'user', // Default role, will be updated by backend
+          });
+        }
+      } catch (sessionError) {
+        console.error('Error getting session:', sessionError);
+      }
       setLoading(false);
     }
   }

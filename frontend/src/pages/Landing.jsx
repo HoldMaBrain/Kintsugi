@@ -1,12 +1,20 @@
 import { motion } from 'framer-motion';
+import { useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Sparkles, Heart, Shield } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
 export default function Landing() {
-  const { signInWithGoogle, user } = useAuth();
+  const { signInWithGoogle, user, loading } = useAuth();
   const navigate = useNavigate();
+
+  // Redirect to chat if user is already authenticated
+  useEffect(() => {
+    if (!loading && user) {
+      navigate('/chat', { replace: true });
+    }
+  }, [user, loading, navigate]);
 
   const handleGetStarted = () => {
     if (user) {
@@ -15,6 +23,18 @@ export default function Landing() {
       signInWithGoogle();
     }
   };
+
+  // Show loading state while checking auth
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-amber-50 via-white to-gold-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-gold-600 mx-auto"></div>
+          <p className="mt-4 text-muted-foreground">Loading...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-amber-50 via-white to-gold-50">

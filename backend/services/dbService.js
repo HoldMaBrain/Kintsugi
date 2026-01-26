@@ -13,6 +13,13 @@ export class DatabaseService {
       .single();
     
     if (error && error.code !== 'PGRST116') {
+      console.error('[dbService] Error getting user by email:', {
+        email,
+        errorCode: error.code,
+        errorMessage: error.message,
+        errorDetails: error.details,
+        errorHint: error.hint
+      });
       throw error;
     }
     return data;
@@ -25,7 +32,17 @@ export class DatabaseService {
       .select()
       .single();
     
-    if (error) throw error;
+    if (error) {
+      console.error('[dbService] Error creating user:', {
+        email,
+        role,
+        errorCode: error.code,
+        errorMessage: error.message,
+        errorDetails: error.details,
+        errorHint: error.hint
+      });
+      throw error;
+    }
     return data;
   }
 
@@ -34,6 +51,21 @@ export class DatabaseService {
     if (!user) {
       const role = adminEmails.includes(email.toLowerCase()) ? 'admin' : 'user';
       user = await this.createUser(email, role);
+    } else {
+      // Update role if email is in admin list but user role is not admin
+      const shouldBeAdmin = adminEmails.includes(email.toLowerCase());
+      if (shouldBeAdmin && user.role !== 'admin') {
+        console.log(`[dbService] Updating user ${email} to admin role`);
+        const { data, error } = await this.supabase
+          .from('users')
+          .update({ role: 'admin' })
+          .eq('id', user.id)
+          .select()
+          .single();
+        if (!error && data) {
+          user = data;
+        }
+      }
     }
     return user;
   }
@@ -51,7 +83,16 @@ export class DatabaseService {
       .select()
       .single();
     
-    if (error) throw error;
+    if (error) {
+      console.error('[dbService] Error creating conversation:', {
+        userId,
+        errorCode: error.code,
+        errorMessage: error.message,
+        errorDetails: error.details,
+        errorHint: error.hint
+      });
+      throw error;
+    }
     return data;
   }
 
@@ -66,7 +107,26 @@ export class DatabaseService {
     }
 
     const { data, error } = await query;
-    if (error) throw error;
+    if (error) {
+      console.error('[dbService] Error fetching conversations:', {
+        errorCode: error.code,
+        errorMessage: error.message,
+        errorDetails: error.details
+      });
+      throw error;
+    }
+    
+    // Log conversation details for debugging
+    if (data && data.length > 0) {
+      console.log(`[dbService] Found ${data.length} conversations`);
+      const firstConv = data[0];
+      console.log(`[dbService] First conversation:`, {
+        id: firstConv.id,
+        messageCount: firstConv.messages?.length || 0,
+        hasMessages: !!firstConv.messages
+      });
+    }
+    
     return data || [];
   }
 
