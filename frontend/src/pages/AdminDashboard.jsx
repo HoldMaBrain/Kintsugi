@@ -9,10 +9,11 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { ArrowLeft, Shield, TrendingUp, TrendingDown, AlertTriangle, CheckCircle, MessageSquare, BarChart3, Eye, Sparkles, Heart, Flower2, Leaf, Brain, ArrowDown, ArrowUp, BookOpen } from 'lucide-react';
+import { ArrowLeft, Shield, TrendingUp, TrendingDown, AlertTriangle, CheckCircle, MessageSquare, BarChart3, Eye, Sparkles, Heart, Flower2, Leaf, Brain, ArrowDown, ArrowUp, BookOpen, Info } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { getFlaggedMessages, reviewMessage, getMetrics, getReviewedMessages } from '@/lib/api';
 import { useToast } from '@/components/ui/use-toast';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 
 export default function AdminDashboard() {
   const { user } = useAuth();
@@ -28,30 +29,68 @@ export default function AdminDashboard() {
   const [correctedResponse, setCorrectedResponse] = useState('');
   const [loading, setLoading] = useState(false);
   const [generatingResponse, setGeneratingResponse] = useState(false);
+  const [initialLoading, setInitialLoading] = useState(true);
+  const [dataLoading, setDataLoading] = useState({
+    flagged: false,
+    reviewed: false,
+    metrics: false,
+  });
 
   useEffect(() => {
     if (!user || user.role !== 'admin') {
       navigate('/chat');
       return;
     }
-    loadData();
+    loadData(true); // Pass true for initial load
     // Increase refresh interval to 30 seconds to reduce API calls
-    const interval = setInterval(loadData, 30000); // Refresh every 30 seconds
+    const interval = setInterval(() => loadData(false), 30000); // Refresh every 30 seconds
     return () => clearInterval(interval);
   }, [user]);
 
-  async function loadData() {
+  async function loadData(isInitial = false) {
+    if (isInitial) {
+      setInitialLoading(true);
+      setDataLoading({ flagged: true, reviewed: true, metrics: true });
+    }
+    
     try {
-      const [flaggedRes, reviewedRes, metricsRes] = await Promise.all([
-        getFlaggedMessages(),
-        getReviewedMessages(),
-        getMetrics(),
-      ]);
-      setFlaggedMessages(flaggedRes.messages || []);
-      setReviewedMessages(reviewedRes.messages || []);
-      setMetrics(metricsRes);
+      // Load flagged and reviewed messages first (faster, more critical)
+      const flaggedPromise = getFlaggedMessages().then(res => {
+        setFlaggedMessages(res.messages || []);
+        setDataLoading(prev => ({ ...prev, flagged: false }));
+        return res;
+      }).catch(err => {
+        setDataLoading(prev => ({ ...prev, flagged: false }));
+        throw err;
+      });
+
+      const reviewedPromise = getReviewedMessages().then(res => {
+        setReviewedMessages(res.messages || []);
+        setDataLoading(prev => ({ ...prev, reviewed: false }));
+        return res;
+      }).catch(err => {
+        setDataLoading(prev => ({ ...prev, reviewed: false }));
+        throw err;
+      });
+
+      // Load metrics separately (slower, can load after UI is visible)
+      const metricsPromise = getMetrics().then(res => {
+        setMetrics(res);
+        setDataLoading(prev => ({ ...prev, metrics: false }));
+        setInitialLoading(false);
+        return res;
+      }).catch(err => {
+        setDataLoading(prev => ({ ...prev, metrics: false }));
+        setInitialLoading(false);
+        throw err;
+      });
+
+      // Wait for all, but UI will show progressively
+      await Promise.all([flaggedPromise, reviewedPromise, metricsPromise]);
     } catch (error) {
       console.error('Error loading data:', error);
+      setInitialLoading(false);
+      setDataLoading({ flagged: false, reviewed: false, metrics: false });
       // Don't show toast for rate limit errors during auto-refresh
       if (!error.message.includes('429') && !error.message.includes('Too many requests')) {
         toast({
@@ -99,7 +138,7 @@ export default function AdminDashboard() {
       setReviewDialogOpen(false);
       // Add a small delay before reloading to avoid rate limit issues
       setTimeout(async () => {
-        await loadData();
+        await loadData(false);
       }, 500);
     } catch (error) {
       console.error('Error reviewing message:', error);
@@ -112,7 +151,7 @@ export default function AdminDashboard() {
         });
         // Still reload data after a delay
         setTimeout(async () => {
-          await loadData();
+          await loadData(false);
         }, 2000);
       } else {
         toast({
@@ -145,6 +184,7 @@ export default function AdminDashboard() {
   ];
 
   return (
+    <TooltipProvider>
     <div className="min-h-screen bg-gradient-to-br from-amber-50 via-white to-gold-50 relative overflow-hidden">
       {/* Animated background */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
@@ -299,7 +339,26 @@ export default function AdminDashboard() {
           </TabsList>
 
           <TabsContent value="flagged" className="space-y-4">
-            {flaggedMessages.length === 0 ? (
+            {dataLoading.flagged ? (
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ duration: 0.3 }}
+                className="space-y-4"
+              >
+                {[1, 2, 3].map((i) => (
+                  <Card key={i} className="bg-white/60 backdrop-blur-xl border-2 border-gold-200/50 shadow-lg">
+                    <CardContent className="py-8">
+                      <div className="animate-pulse space-y-4">
+                        <div className="h-6 bg-gold-200/50 rounded w-1/3"></div>
+                        <div className="h-4 bg-gold-200/30 rounded w-2/3"></div>
+                        <div className="h-20 bg-gold-200/30 rounded"></div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </motion.div>
+            ) : flaggedMessages.length === 0 ? (
               <motion.div
                 initial={{ opacity: 0, scale: 0.95 }}
                 animate={{ opacity: 1, scale: 1 }}
@@ -403,7 +462,26 @@ export default function AdminDashboard() {
           </TabsContent>
 
           <TabsContent value="reviewed" className="space-y-4">
-            {reviewedMessages.length === 0 ? (
+            {dataLoading.reviewed ? (
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ duration: 0.3 }}
+                className="space-y-4"
+              >
+                {[1, 2, 3].map((i) => (
+                  <Card key={i} className="bg-white/60 backdrop-blur-xl border-2 border-gold-200/50 shadow-lg">
+                    <CardContent className="py-8">
+                      <div className="animate-pulse space-y-4">
+                        <div className="h-6 bg-gold-200/50 rounded w-1/3"></div>
+                        <div className="h-4 bg-gold-200/30 rounded w-2/3"></div>
+                        <div className="h-20 bg-gold-200/30 rounded"></div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </motion.div>
+            ) : reviewedMessages.length === 0 ? (
               <motion.div
                 initial={{ opacity: 0, scale: 0.95 }}
                 animate={{ opacity: 1, scale: 1 }}
@@ -556,7 +634,35 @@ export default function AdminDashboard() {
           </TabsContent>
 
           <TabsContent value="metrics">
-            {metrics ? (
+            {dataLoading.metrics ? (
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ duration: 0.3 }}
+                className="space-y-6"
+              >
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                  {[1, 2, 3, 4].map((i) => (
+                    <Card key={i} className="bg-white/60 backdrop-blur-xl border-2 border-gold-200/50 shadow-lg">
+                      <CardContent className="py-6">
+                        <div className="animate-pulse space-y-3">
+                          <div className="h-4 bg-gold-200/50 rounded w-1/2"></div>
+                          <div className="h-8 bg-gold-200/30 rounded w-3/4"></div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+                <Card className="bg-white/60 backdrop-blur-xl border-2 border-gold-200/50 shadow-lg">
+                  <CardContent className="py-12">
+                    <div className="animate-pulse space-y-4">
+                      <div className="h-6 bg-gold-200/50 rounded w-1/4"></div>
+                      <div className="h-32 bg-gold-200/30 rounded"></div>
+                    </div>
+                  </CardContent>
+                </Card>
+              </motion.div>
+            ) : metrics ? (
               <div className="space-y-6">
                 {/* Learning Progress Section */}
                 <motion.div
@@ -569,8 +675,25 @@ export default function AdminDashboard() {
                   <Card className="bg-gradient-to-br from-green-50/80 to-emerald-50/60 backdrop-blur-xl border-2 border-green-300/60 shadow-xl shadow-green-300/20 hover:shadow-2xl hover:shadow-green-400/30 transition-all duration-300">
                     <CardHeader>
                       <div className="flex items-center justify-between">
-                        <div>
-                          <CardDescription className="text-sm font-semibold text-gray-600 mb-2">Day-to-Day Improvement</CardDescription>
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2 mb-2">
+                            <CardDescription className="text-sm font-semibold text-gray-600">Day-to-Day Improvement</CardDescription>
+                            <TooltipProvider>
+                              <Tooltip delayDuration={300}>
+                                <TooltipTrigger asChild>
+                                  <Info className="h-4 w-4 text-gray-400 hover:text-gold-600 cursor-help transition-colors" />
+                                </TooltipTrigger>
+                                <TooltipContent side="top" className="max-w-sm">
+                                  <p className="font-semibold mb-1 text-gold-700">Day-to-Day Improvement</p>
+                                  <p className="text-xs leading-relaxed">
+                                    Calculated as the percentage change in flagged message rate from yesterday to today. 
+                                    A positive value indicates improvement (fewer flagged messages), showing the chatbot is learning from admin feedback.
+                                    Formula: ((Yesterday's Flagged Rate - Today's Flagged Rate) / Yesterday's Flagged Rate) × 100
+                                  </p>
+                                </TooltipContent>
+                              </Tooltip>
+                            </TooltipProvider>
+                          </div>
                           <CardTitle className="text-5xl font-bold bg-gradient-to-r from-green-600 to-emerald-600 bg-clip-text text-transparent">
                             {metrics.dayToDayImprovement > 0 ? `+${metrics.dayToDayImprovement.toFixed(1)}` : metrics.dayToDayImprovement.toFixed(1)}%
                           </CardTitle>
@@ -598,8 +721,25 @@ export default function AdminDashboard() {
                   <Card className="bg-gradient-to-br from-purple-50/80 to-indigo-50/60 backdrop-blur-xl border-2 border-purple-300/60 shadow-xl shadow-purple-300/20 hover:shadow-2xl hover:shadow-purple-400/30 transition-all duration-300">
                     <CardHeader>
                       <div className="flex items-center justify-between">
-                        <div>
-                          <CardDescription className="text-sm font-semibold text-gray-600 mb-2">Total Feedback Provided</CardDescription>
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2 mb-2">
+                            <CardDescription className="text-sm font-semibold text-gray-600">Total Feedback Provided</CardDescription>
+                            <TooltipProvider>
+                              <Tooltip delayDuration={300}>
+                                <TooltipTrigger asChild>
+                                  <Info className="h-4 w-4 text-gray-400 hover:text-gold-600 cursor-help transition-colors" />
+                                </TooltipTrigger>
+                                <TooltipContent side="top" className="max-w-sm">
+                                  <p className="font-semibold mb-1 text-gold-700">Total Feedback Provided</p>
+                                  <p className="text-xs leading-relaxed">
+                                    The total number of feedback entries stored in the feedback memory database. 
+                                    Each entry contains the original unsafe response, admin feedback, and the corrected response. 
+                                    The chatbot uses this feedback to learn and improve its responses over time.
+                                  </p>
+                                </TooltipContent>
+                              </Tooltip>
+                            </TooltipProvider>
+                          </div>
                           <CardTitle className="text-5xl font-bold bg-gradient-to-r from-purple-600 to-indigo-600 bg-clip-text text-transparent">
                             {metrics.totalFeedback || 0}
                           </CardTitle>
@@ -633,18 +773,54 @@ export default function AdminDashboard() {
                       </CardTitle>
                     </CardHeader>
                     <CardContent className="space-y-3">
-                      <div className="flex justify-between items-center p-3 bg-gradient-to-r from-blue-50/50 to-blue-100/30 rounded-lg border border-blue-200/50">
-                        <span className="text-sm font-semibold text-gray-700">Messages</span>
-                        <span className="text-lg font-bold text-blue-600">{metrics.todayMessagesCount || 0}</span>
-                      </div>
-                      <div className="flex justify-between items-center p-3 bg-gradient-to-r from-amber-50/50 to-amber-100/30 rounded-lg border border-amber-200/50">
-                        <span className="text-sm font-semibold text-gray-700">Flagged</span>
-                        <span className="text-lg font-bold text-amber-600">{metrics.todayFlaggedCount || 0}</span>
-                      </div>
-                      <div className="flex justify-between items-center p-3 bg-gradient-to-r from-red-50/50 to-red-100/30 rounded-lg border border-red-200/50">
-                        <span className="text-sm font-semibold text-gray-700">Flagged Rate</span>
-                        <span className="text-lg font-bold text-red-600">{metrics.todayFlaggedRate?.toFixed(1) || 0}%</span>
-                      </div>
+                      <TooltipProvider>
+                        <div className="space-y-3">
+                          <Tooltip delayDuration={300}>
+                            <TooltipTrigger asChild>
+                              <div className="flex justify-between items-center p-3 bg-gradient-to-r from-blue-50/50 to-blue-100/30 rounded-lg border border-blue-200/50 cursor-help hover:bg-blue-100/40 transition-colors">
+                                <span className="text-sm font-semibold text-gray-700">Messages</span>
+                                <span className="text-lg font-bold text-blue-600">{metrics.todayMessagesCount || 0}</span>
+                              </div>
+                            </TooltipTrigger>
+                            <TooltipContent side="top" className="max-w-xs">
+                              <p className="font-semibold mb-1 text-gold-700">Today's Messages</p>
+                              <p className="text-xs leading-relaxed">
+                                Total number of messages sent today (from midnight to now). Includes both user and AI messages.
+                              </p>
+                            </TooltipContent>
+                          </Tooltip>
+                          <Tooltip delayDuration={300}>
+                            <TooltipTrigger asChild>
+                              <div className="flex justify-between items-center p-3 bg-gradient-to-r from-amber-50/50 to-amber-100/30 rounded-lg border border-amber-200/50 cursor-help hover:bg-amber-100/40 transition-colors">
+                                <span className="text-sm font-semibold text-gray-700">Flagged</span>
+                                <span className="text-lg font-bold text-amber-600">{metrics.todayFlaggedCount || 0}</span>
+                              </div>
+                            </TooltipTrigger>
+                            <TooltipContent side="top" className="max-w-xs">
+                              <p className="font-semibold mb-1 text-gold-700">Today's Flagged Messages</p>
+                              <p className="text-xs leading-relaxed">
+                                Total number of messages flagged today, including both currently flagged and reviewed messages. 
+                                This preserves historical data even after messages are reviewed.
+                              </p>
+                            </TooltipContent>
+                          </Tooltip>
+                          <Tooltip delayDuration={300}>
+                            <TooltipTrigger asChild>
+                              <div className="flex justify-between items-center p-3 bg-gradient-to-r from-red-50/50 to-red-100/30 rounded-lg border border-red-200/50 cursor-help hover:bg-red-100/40 transition-colors">
+                                <span className="text-sm font-semibold text-gray-700">Flagged Rate</span>
+                                <span className="text-lg font-bold text-red-600">{metrics.todayFlaggedRate?.toFixed(1) || 0}%</span>
+                              </div>
+                            </TooltipTrigger>
+                            <TooltipContent side="top" className="max-w-xs">
+                              <p className="font-semibold mb-1 text-gold-700">Today's Flagged Rate</p>
+                              <p className="text-xs leading-relaxed">
+                                Percentage of messages flagged today. Calculated as: (Flagged Messages / Total Messages) × 100. 
+                                Lower rates indicate better performance and learning from feedback.
+                              </p>
+                            </TooltipContent>
+                          </Tooltip>
+                        </div>
+                      </TooltipProvider>
                     </CardContent>
                   </Card>
 
@@ -659,18 +835,54 @@ export default function AdminDashboard() {
                       </CardTitle>
                     </CardHeader>
                     <CardContent className="space-y-3">
-                      <div className="flex justify-between items-center p-3 bg-gradient-to-r from-blue-50/50 to-blue-100/30 rounded-lg border border-blue-200/50">
-                        <span className="text-sm font-semibold text-gray-700">Messages</span>
-                        <span className="text-lg font-bold text-blue-600">{metrics.yesterdayMessagesCount || 0}</span>
-                      </div>
-                      <div className="flex justify-between items-center p-3 bg-gradient-to-r from-amber-50/50 to-amber-100/30 rounded-lg border border-amber-200/50">
-                        <span className="text-sm font-semibold text-gray-700">Flagged</span>
-                        <span className="text-lg font-bold text-amber-600">{metrics.yesterdayFlaggedCount || 0}</span>
-                      </div>
-                      <div className="flex justify-between items-center p-3 bg-gradient-to-r from-red-50/50 to-red-100/30 rounded-lg border border-red-200/50">
-                        <span className="text-sm font-semibold text-gray-700">Flagged Rate</span>
-                        <span className="text-lg font-bold text-red-600">{metrics.yesterdayFlaggedRate?.toFixed(1) || 0}%</span>
-                      </div>
+                      <TooltipProvider>
+                        <div className="space-y-3">
+                          <Tooltip delayDuration={300}>
+                            <TooltipTrigger asChild>
+                              <div className="flex justify-between items-center p-3 bg-gradient-to-r from-blue-50/50 to-blue-100/30 rounded-lg border border-blue-200/50 cursor-help hover:bg-blue-100/40 transition-colors">
+                                <span className="text-sm font-semibold text-gray-700">Messages</span>
+                                <span className="text-lg font-bold text-blue-600">{metrics.yesterdayMessagesCount || 0}</span>
+                              </div>
+                            </TooltipTrigger>
+                            <TooltipContent side="top" className="max-w-xs">
+                              <p className="font-semibold mb-1 text-gold-700">Yesterday's Messages</p>
+                              <p className="text-xs leading-relaxed">
+                                Total number of messages sent yesterday (from midnight to 11:59 PM). Used for day-to-day comparison.
+                              </p>
+                            </TooltipContent>
+                          </Tooltip>
+                          <Tooltip delayDuration={300}>
+                            <TooltipTrigger asChild>
+                              <div className="flex justify-between items-center p-3 bg-gradient-to-r from-amber-50/50 to-amber-100/30 rounded-lg border border-amber-200/50 cursor-help hover:bg-amber-100/40 transition-colors">
+                                <span className="text-sm font-semibold text-gray-700">Flagged</span>
+                                <span className="text-lg font-bold text-amber-600">{metrics.yesterdayFlaggedCount || 0}</span>
+                              </div>
+                            </TooltipTrigger>
+                            <TooltipContent side="top" className="max-w-xs">
+                              <p className="font-semibold mb-1 text-gold-700">Yesterday's Flagged Messages</p>
+                              <p className="text-xs leading-relaxed">
+                                Total number of messages flagged yesterday, including reviewed messages. 
+                                This historical data is preserved for trend analysis.
+                              </p>
+                            </TooltipContent>
+                          </Tooltip>
+                          <Tooltip delayDuration={300}>
+                            <TooltipTrigger asChild>
+                              <div className="flex justify-between items-center p-3 bg-gradient-to-r from-red-50/50 to-red-100/30 rounded-lg border border-red-200/50 cursor-help hover:bg-red-100/40 transition-colors">
+                                <span className="text-sm font-semibold text-gray-700">Flagged Rate</span>
+                                <span className="text-lg font-bold text-red-600">{metrics.yesterdayFlaggedRate?.toFixed(1) || 0}%</span>
+                              </div>
+                            </TooltipTrigger>
+                            <TooltipContent side="top" className="max-w-xs">
+                              <p className="font-semibold mb-1 text-gold-700">Yesterday's Flagged Rate</p>
+                              <p className="text-xs leading-relaxed">
+                                Percentage of messages flagged yesterday. Calculated as: (Flagged Messages / Total Messages) × 100. 
+                                Compared with today's rate to show improvement.
+                              </p>
+                            </TooltipContent>
+                          </Tooltip>
+                        </div>
+                      </TooltipProvider>
                     </CardContent>
                   </Card>
 
@@ -685,18 +897,54 @@ export default function AdminDashboard() {
                       </CardTitle>
                     </CardHeader>
                     <CardContent className="space-y-3">
-                      <div className="flex justify-between items-center p-3 bg-gradient-to-r from-blue-50/50 to-blue-100/30 rounded-lg border border-blue-200/50">
-                        <span className="text-sm font-semibold text-gray-700">Messages</span>
-                        <span className="text-lg font-bold text-blue-600">{metrics.twoDaysAgoMessagesCount || 0}</span>
-                      </div>
-                      <div className="flex justify-between items-center p-3 bg-gradient-to-r from-amber-50/50 to-amber-100/30 rounded-lg border border-amber-200/50">
-                        <span className="text-sm font-semibold text-gray-700">Flagged</span>
-                        <span className="text-lg font-bold text-amber-600">{metrics.twoDaysAgoFlaggedCount || 0}</span>
-                      </div>
-                      <div className="flex justify-between items-center p-3 bg-gradient-to-r from-red-50/50 to-red-100/30 rounded-lg border border-red-200/50">
-                        <span className="text-sm font-semibold text-gray-700">Flagged Rate</span>
-                        <span className="text-lg font-bold text-red-600">{metrics.twoDaysAgoFlaggedRate?.toFixed(1) || 0}%</span>
-                      </div>
+                      <TooltipProvider>
+                        <div className="space-y-3">
+                          <Tooltip delayDuration={300}>
+                            <TooltipTrigger asChild>
+                              <div className="flex justify-between items-center p-3 bg-gradient-to-r from-blue-50/50 to-blue-100/30 rounded-lg border border-blue-200/50 cursor-help hover:bg-blue-100/40 transition-colors">
+                                <span className="text-sm font-semibold text-gray-700">Messages</span>
+                                <span className="text-lg font-bold text-blue-600">{metrics.twoDaysAgoMessagesCount || 0}</span>
+                              </div>
+                            </TooltipTrigger>
+                            <TooltipContent side="top" className="max-w-xs">
+                              <p className="font-semibold mb-1 text-gold-700">2 Days Ago Messages</p>
+                              <p className="text-xs leading-relaxed">
+                                Total number of messages sent two days ago. Used for extended trend analysis and comparison.
+                              </p>
+                            </TooltipContent>
+                          </Tooltip>
+                          <Tooltip delayDuration={300}>
+                            <TooltipTrigger asChild>
+                              <div className="flex justify-between items-center p-3 bg-gradient-to-r from-amber-50/50 to-amber-100/30 rounded-lg border border-amber-200/50 cursor-help hover:bg-amber-100/40 transition-colors">
+                                <span className="text-sm font-semibold text-gray-700">Flagged</span>
+                                <span className="text-lg font-bold text-amber-600">{metrics.twoDaysAgoFlaggedCount || 0}</span>
+                              </div>
+                            </TooltipTrigger>
+                            <TooltipContent side="top" className="max-w-xs">
+                              <p className="font-semibold mb-1 text-gold-700">2 Days Ago Flagged Messages</p>
+                              <p className="text-xs leading-relaxed">
+                                Total number of messages flagged two days ago, including reviewed messages. 
+                                Preserved for historical trend tracking.
+                              </p>
+                            </TooltipContent>
+                          </Tooltip>
+                          <Tooltip delayDuration={300}>
+                            <TooltipTrigger asChild>
+                              <div className="flex justify-between items-center p-3 bg-gradient-to-r from-red-50/50 to-red-100/30 rounded-lg border border-red-200/50 cursor-help hover:bg-red-100/40 transition-colors">
+                                <span className="text-sm font-semibold text-gray-700">Flagged Rate</span>
+                                <span className="text-lg font-bold text-red-600">{metrics.twoDaysAgoFlaggedRate?.toFixed(1) || 0}%</span>
+                              </div>
+                            </TooltipTrigger>
+                            <TooltipContent side="top" className="max-w-xs">
+                              <p className="font-semibold mb-1 text-gold-700">2 Days Ago Flagged Rate</p>
+                              <p className="text-xs leading-relaxed">
+                                Percentage of messages flagged two days ago. Calculated as: (Flagged Messages / Total Messages) × 100. 
+                                Part of the trend analysis showing learning progress.
+                              </p>
+                            </TooltipContent>
+                          </Tooltip>
+                        </div>
+                      </TooltipProvider>
                     </CardContent>
                   </Card>
                 </motion.div>
@@ -710,12 +958,29 @@ export default function AdminDashboard() {
                   >
                     <Card className="bg-white/70 backdrop-blur-xl border-2 border-purple-300/60 shadow-xl shadow-purple-300/20">
                       <CardHeader>
-                        <CardTitle className="flex items-center gap-3 text-xl font-bold text-gray-800">
-                          <div className="p-2 bg-gradient-to-br from-purple-100 to-purple-50 rounded-lg border border-purple-200/50">
-                            <BarChart3 className="h-6 w-6 text-purple-600" />
-                          </div>
-                          Hourly Trend (Last 24 Hours)
-                        </CardTitle>
+                        <div className="flex items-center gap-2 mb-2">
+                          <CardTitle className="flex items-center gap-3 text-xl font-bold text-gray-800">
+                            <div className="p-2 bg-gradient-to-br from-purple-100 to-purple-50 rounded-lg border border-purple-200/50">
+                              <BarChart3 className="h-6 w-6 text-purple-600" />
+                            </div>
+                            Hourly Trend (Last 24 Hours)
+                          </CardTitle>
+                          <TooltipProvider>
+                            <Tooltip delayDuration={300}>
+                              <TooltipTrigger asChild>
+                                <Info className="h-4 w-4 text-gray-400 hover:text-gold-600 cursor-help transition-colors" />
+                              </TooltipTrigger>
+                              <TooltipContent side="top" className="max-w-sm">
+                                <p className="font-semibold mb-1 text-gold-700">Hourly Trend (Last 24 Hours)</p>
+                                <p className="text-xs leading-relaxed">
+                                  Shows the number of flagged messages per hour over the last 24 hours. 
+                                  Each bar represents one hour, with recent hours (last 6) highlighted in green to show recent improvements. 
+                                  This helps identify patterns and track real-time learning progress.
+                                </p>
+                              </TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
+                        </div>
                         <CardDescription className="text-sm text-gray-600">
                           Real-time improvement tracking showing flagged messages by hour
                         </CardDescription>
@@ -777,12 +1042,29 @@ export default function AdminDashboard() {
                   >
                     <Card className="bg-white/70 backdrop-blur-xl border-2 border-gold-300/60 shadow-xl shadow-gold-300/20">
                       <CardHeader>
-                        <CardTitle className="flex items-center gap-3 text-xl font-bold text-gray-800">
-                          <div className="p-2 bg-gradient-to-br from-gold-100 to-gold-50 rounded-lg border border-gold-200/50">
-                            <BarChart3 className="h-6 w-6 text-gold-600" />
-                          </div>
-                          Flagged Messages Trend (Last 30 Days)
-                        </CardTitle>
+                        <div className="flex items-center gap-2 mb-2">
+                          <CardTitle className="flex items-center gap-3 text-xl font-bold text-gray-800">
+                            <div className="p-2 bg-gradient-to-br from-gold-100 to-gold-50 rounded-lg border border-gold-200/50">
+                              <BarChart3 className="h-6 w-6 text-gold-600" />
+                            </div>
+                            Flagged Messages Trend (Last 30 Days)
+                          </CardTitle>
+                          <TooltipProvider>
+                            <Tooltip delayDuration={300}>
+                              <TooltipTrigger asChild>
+                                <Info className="h-4 w-4 text-gray-400 hover:text-gold-600 cursor-help transition-colors" />
+                              </TooltipTrigger>
+                              <TooltipContent side="top" className="max-w-sm">
+                                <p className="font-semibold mb-1 text-gold-700">Flagged Messages Trend (Last 30 Days)</p>
+                                <p className="text-xs leading-relaxed">
+                                  Shows the daily count of flagged messages over the last 30 days. 
+                                  Recent days (last 3) are highlighted in green to emphasize recent improvements. 
+                                  A downward trend indicates the chatbot is learning from admin feedback and improving over time.
+                                </p>
+                              </TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
+                        </div>
                         <CardDescription className="text-sm text-gray-600">
                           Day-to-day trend showing the decrease in flagged messages as the chatbot learns from feedback
                         </CardDescription>
@@ -841,58 +1123,116 @@ export default function AdminDashboard() {
                   transition={{ duration: 0.3, delay: 0.3 }}
                   className="grid md:grid-cols-2 lg:grid-cols-4 gap-6"
                 >
-                  <Card className="bg-white/70 backdrop-blur-xl border-2 border-blue-300/60 shadow-xl shadow-blue-300/20 hover:shadow-2xl hover:shadow-blue-400/30 transition-all duration-300">
-                    <CardHeader className="pb-3">
-                      <div className="flex items-center gap-3 mb-2">
-                        <div className="p-2 bg-gradient-to-br from-blue-100 to-blue-50 rounded-lg border border-blue-200/50">
-                          <MessageSquare className="h-5 w-5 text-blue-600" />
+                  <TooltipProvider>
+                    <Card className="bg-white/70 backdrop-blur-xl border-2 border-blue-300/60 shadow-xl shadow-blue-300/20 hover:shadow-2xl hover:shadow-blue-400/30 transition-all duration-300">
+                      <CardHeader className="pb-3">
+                        <div className="flex items-center gap-3 mb-2">
+                          <div className="p-2 bg-gradient-to-br from-blue-100 to-blue-50 rounded-lg border border-blue-200/50">
+                            <MessageSquare className="h-5 w-5 text-blue-600" />
+                          </div>
+                          <div className="flex items-center gap-2 flex-1">
+                            <CardDescription className="text-sm font-semibold text-gray-600">Total Messages</CardDescription>
+                            <Tooltip delayDuration={300}>
+                              <TooltipTrigger asChild>
+                                <Info className="h-3.5 w-3.5 text-gray-400 hover:text-gold-600 cursor-help transition-colors" />
+                              </TooltipTrigger>
+                              <TooltipContent side="top" className="max-w-xs">
+                                <p className="font-semibold mb-1 text-gold-700">Total Messages</p>
+                                <p className="text-xs leading-relaxed">
+                                  The total count of all messages (both user and AI) across all conversations in the system since the beginning.
+                                </p>
+                              </TooltipContent>
+                            </Tooltip>
+                          </div>
                         </div>
-                        <CardDescription className="text-sm font-semibold text-gray-600">Total Messages</CardDescription>
-                      </div>
-                      <CardTitle className="text-4xl font-bold bg-gradient-to-r from-blue-600 to-blue-500 bg-clip-text text-transparent">
-                        {metrics.totalMessages || 0}
-                      </CardTitle>
-                    </CardHeader>
-                  </Card>
-                  <Card className="bg-white/70 backdrop-blur-xl border-2 border-amber-300/60 shadow-xl shadow-amber-300/20 hover:shadow-2xl hover:shadow-amber-400/30 transition-all duration-300">
-                    <CardHeader className="pb-3">
-                      <div className="flex items-center gap-3 mb-2">
-                        <div className="p-2 bg-gradient-to-br from-amber-100 to-amber-50 rounded-lg border border-amber-200/50">
-                          <AlertTriangle className="h-5 w-5 text-amber-600" />
+                        <CardTitle className="text-4xl font-bold bg-gradient-to-r from-blue-600 to-blue-500 bg-clip-text text-transparent">
+                          {metrics.totalMessages || 0}
+                        </CardTitle>
+                      </CardHeader>
+                    </Card>
+                    <Card className="bg-white/70 backdrop-blur-xl border-2 border-amber-300/60 shadow-xl shadow-amber-300/20 hover:shadow-2xl hover:shadow-amber-400/30 transition-all duration-300">
+                      <CardHeader className="pb-3">
+                        <div className="flex items-center gap-3 mb-2">
+                          <div className="p-2 bg-gradient-to-br from-amber-100 to-amber-50 rounded-lg border border-amber-200/50">
+                            <AlertTriangle className="h-5 w-5 text-amber-600" />
+                          </div>
+                          <div className="flex items-center gap-2 flex-1">
+                            <CardDescription className="text-sm font-semibold text-gray-600">Total Flagged</CardDescription>
+                            <Tooltip delayDuration={300}>
+                              <TooltipTrigger asChild>
+                                <Info className="h-3.5 w-3.5 text-gray-400 hover:text-gold-600 cursor-help transition-colors" />
+                              </TooltipTrigger>
+                              <TooltipContent side="top" className="max-w-xs">
+                                <p className="font-semibold mb-1 text-gold-700">Total Flagged</p>
+                                <p className="text-xs leading-relaxed">
+                                  Total number of messages that have been flagged for safety concerns, including both currently flagged and reviewed messages. 
+                                  This preserves historical data to show the complete picture of safety monitoring.
+                                </p>
+                              </TooltipContent>
+                            </Tooltip>
+                          </div>
                         </div>
-                        <CardDescription className="text-sm font-semibold text-gray-600">Total Flagged</CardDescription>
-                      </div>
-                      <CardTitle className="text-4xl font-bold bg-gradient-to-r from-amber-600 to-amber-500 bg-clip-text text-transparent">
-                        {metrics.flaggedCount || 0}
-                      </CardTitle>
-                    </CardHeader>
-                  </Card>
-                  <Card className="bg-white/70 backdrop-blur-xl border-2 border-orange-300/60 shadow-xl shadow-orange-300/20 hover:shadow-2xl hover:shadow-orange-400/30 transition-all duration-300">
-                    <CardHeader className="pb-3">
-                      <div className="flex items-center gap-3 mb-2">
-                        <div className="p-2 bg-gradient-to-br from-orange-100 to-orange-50 rounded-lg border border-orange-200/50">
-                          <BookOpen className="h-5 w-5 text-orange-600" />
+                        <CardTitle className="text-4xl font-bold bg-gradient-to-r from-amber-600 to-amber-500 bg-clip-text text-transparent">
+                          {metrics.flaggedCount || 0}
+                        </CardTitle>
+                      </CardHeader>
+                    </Card>
+                    <Card className="bg-white/70 backdrop-blur-xl border-2 border-orange-300/60 shadow-xl shadow-orange-300/20 hover:shadow-2xl hover:shadow-orange-400/30 transition-all duration-300">
+                      <CardHeader className="pb-3">
+                        <div className="flex items-center gap-3 mb-2">
+                          <div className="p-2 bg-gradient-to-br from-orange-100 to-orange-50 rounded-lg border border-orange-200/50">
+                            <BookOpen className="h-5 w-5 text-orange-600" />
+                          </div>
+                          <div className="flex items-center gap-2 flex-1">
+                            <CardDescription className="text-sm font-semibold text-gray-600">Total Reviews</CardDescription>
+                            <Tooltip delayDuration={300}>
+                              <TooltipTrigger asChild>
+                                <Info className="h-3.5 w-3.5 text-gray-400 hover:text-gold-600 cursor-help transition-colors" />
+                              </TooltipTrigger>
+                              <TooltipContent side="top" className="max-w-xs">
+                                <p className="font-semibold mb-1 text-gold-700">Total Reviews</p>
+                                <p className="text-xs leading-relaxed">
+                                  Total number of flagged messages that have been reviewed by admins. 
+                                  Each review includes admin feedback and, if unsafe, a corrected response that the chatbot learns from.
+                                </p>
+                              </TooltipContent>
+                            </Tooltip>
+                          </div>
                         </div>
-                        <CardDescription className="text-sm font-semibold text-gray-600">Total Reviews</CardDescription>
-                      </div>
-                      <CardTitle className="text-4xl font-bold bg-gradient-to-r from-orange-600 to-orange-500 bg-clip-text text-transparent">
-                        {metrics.totalReviews || 0}
-                      </CardTitle>
-                    </CardHeader>
-                  </Card>
-                  <Card className="bg-white/70 backdrop-blur-xl border-2 border-red-300/60 shadow-xl shadow-red-300/20 hover:shadow-2xl hover:shadow-red-400/30 transition-all duration-300">
-                    <CardHeader className="pb-3">
-                      <div className="flex items-center gap-3 mb-2">
-                        <div className="p-2 bg-gradient-to-br from-red-100 to-red-50 rounded-lg border border-red-200/50">
-                          <Shield className="h-5 w-5 text-red-600" />
+                        <CardTitle className="text-4xl font-bold bg-gradient-to-r from-orange-600 to-orange-500 bg-clip-text text-transparent">
+                          {metrics.totalReviews || 0}
+                        </CardTitle>
+                      </CardHeader>
+                    </Card>
+                    <Card className="bg-white/70 backdrop-blur-xl border-2 border-red-300/60 shadow-xl shadow-red-300/20 hover:shadow-2xl hover:shadow-red-400/30 transition-all duration-300">
+                      <CardHeader className="pb-3">
+                        <div className="flex items-center gap-3 mb-2">
+                          <div className="p-2 bg-gradient-to-br from-red-100 to-red-50 rounded-lg border border-red-200/50">
+                            <Shield className="h-5 w-5 text-red-600" />
+                          </div>
+                          <div className="flex items-center gap-2 flex-1">
+                            <CardDescription className="text-sm font-semibold text-gray-600">Correction Rate</CardDescription>
+                            <Tooltip delayDuration={300}>
+                              <TooltipTrigger asChild>
+                                <Info className="h-3.5 w-3.5 text-gray-400 hover:text-gold-600 cursor-help transition-colors" />
+                              </TooltipTrigger>
+                              <TooltipContent side="top" className="max-w-xs">
+                                <p className="font-semibold mb-1 text-gold-700">Correction Rate</p>
+                                <p className="text-xs leading-relaxed">
+                                  Percentage of reviewed messages that were marked as "unsafe" and required correction. 
+                                  Calculated as: (Unsafe Reviews / Total Reviews) × 100. 
+                                  Higher rates indicate more issues were found, but also more learning opportunities.
+                                </p>
+                              </TooltipContent>
+                            </Tooltip>
+                          </div>
                         </div>
-                        <CardDescription className="text-sm font-semibold text-gray-600">Correction Rate</CardDescription>
-                      </div>
-                      <CardTitle className="text-4xl font-bold bg-gradient-to-r from-red-600 to-red-500 bg-clip-text text-transparent">
-                        {metrics.correctionRate?.toFixed(1) || 0}%
-                      </CardTitle>
-                    </CardHeader>
-                  </Card>
+                        <CardTitle className="text-4xl font-bold bg-gradient-to-r from-red-600 to-red-500 bg-clip-text text-transparent">
+                          {metrics.correctionRate?.toFixed(1) || 0}%
+                        </CardTitle>
+                      </CardHeader>
+                    </Card>
+                  </TooltipProvider>
                 </motion.div>
               </div>
             ) : (
@@ -1035,5 +1375,6 @@ export default function AdminDashboard() {
         </Dialog>
       </div>
     </div>
+    </TooltipProvider>
   );
 }

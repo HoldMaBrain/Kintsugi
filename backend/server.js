@@ -172,11 +172,13 @@ app.get('/api/user', verifyUser, (req, res) => {
 app.get('/api/conversations', verifyUser, async (req, res) => {
   try {
     console.log(`[GET /api/conversations] Fetching conversations for user: ${req.user.id}`);
+    // Always filter by user_id - users should only see their own conversations in the chat page
+    // Admins can see all conversations in the admin dashboard, but not in their personal chat
     const conversations = await dbService.getConversations(
       req.user.id,
-      req.user.role === 'admin'
+      false // Always false - never return all conversations for chat page
     );
-    console.log(`[GET /api/conversations] Found ${conversations.length} conversations`);
+    console.log(`[GET /api/conversations] Found ${conversations.length} conversations for user ${req.user.id}`);
     res.json({ conversations });
   } catch (error) {
     console.error('[GET /api/conversations] Error fetching conversations:', error);
@@ -195,11 +197,20 @@ app.get('/api/conversations', verifyUser, async (req, res) => {
 // Get single conversation
 app.get('/api/conversations/:id', verifyUser, async (req, res) => {
   try {
+    // Always filter by user_id - users should only see their own conversations
+    // Admins can see all conversations in the admin dashboard, but not in their personal chat
     const conversation = await dbService.getConversation(
       req.params.id,
       req.user.id,
-      req.user.role === 'admin'
+      false // Always false - never return conversations from other users for chat page
     );
+    
+    // Additional security check: ensure the conversation belongs to the user
+    if (conversation && conversation.user_id !== req.user.id) {
+      console.warn(`[GET /api/conversations/:id] User ${req.user.id} attempted to access conversation ${req.params.id} belonging to user ${conversation.user_id}`);
+      return res.status(403).json({ error: 'Access denied: This conversation does not belong to you' });
+    }
+    
     res.json({ conversation });
   } catch (error) {
     console.error('Error fetching conversation:', error);
@@ -253,11 +264,11 @@ app.post('/api/chat/send', verifyUser, async (req, res) => {
     }
 
     console.log('🔍 Fetching conversation...');
-    // Verify conversation belongs to user
+    // Verify conversation belongs to user - always filter by user_id
     const conversation = await dbService.getConversation(
       conversationId,
       req.user.id,
-      req.user.role === 'admin'
+      false // Always false - users can only send messages to their own conversations
     );
     console.log('✅ Conversation fetched');
 
@@ -271,7 +282,7 @@ app.post('/api/chat/send', verifyUser, async (req, res) => {
     const updatedConversation = await dbService.getConversation(
       conversationId,
       req.user.id,
-      req.user.role === 'admin'
+      false // Always false - users can only access their own conversations
     );
     
     // Get conversation history - sort by created_at to ensure correct order
@@ -655,19 +666,23 @@ Corrected Response:`;
 // Admin: Get metrics
 app.get('/api/admin/metrics', verifyUser, verifyAdmin, async (req, res) => {
   try {
-    const { data: messages } = await dbService.supabase
-      .from('messages')
-      .select('risk_level, flagged, created_at')
-      .order('created_at', { ascending: true });
+    // Fetch messages and reviews in parallel for better performance
+    const [messagesResult, reviewsResult] = await Promise.all([
+      dbService.supabase
+        .from('messages')
+        .select('risk_level, flagged, created_at')
+        .order('created_at', { ascending: true }),
+      dbService.supabase
+        .from('reviews')
+        .select('verdict, created_at, message_id')
+        .order('created_at', { ascending: true })
+    ]);
 
-    // Get reviews with their associated message data to preserve historical flagged counts
-    const { data: reviews } = await dbService.supabase
-      .from('reviews')
-      .select('verdict, created_at, message_id')
-      .order('created_at', { ascending: true });
+    const messages = messagesResult.data || [];
+    const reviews = reviewsResult.data || [];
     
     // Get message IDs from reviews and fetch their created_at dates
-    const reviewedMessageIds = reviews ? reviews.map(r => r.message_id) : [];
+    const reviewedMessageIds = reviews.length > 0 ? reviews.map(r => r.message_id) : [];
     const reviewedMessagesData = reviewedMessageIds.length > 0 
       ? await dbService.supabase
           .from('messages')
@@ -689,10 +704,13 @@ app.get('/api/admin/metrics', verifyUser, verifyAdmin, async (req, res) => {
       messages: reviewedMessagesMap[review.message_id] || null
     })) : [];
 
-    const { data: feedbackMemory } = await dbService.supabase
+    // Fetch feedback memory in parallel with reviewed messages if possible
+    const feedbackMemoryResult = await dbService.supabase
       .from('feedback_memory')
       .select('created_at')
       .order('created_at', { ascending: true });
+    
+    const feedbackMemory = feedbackMemoryResult.data || [];
 
     const totalMessages = messages.length;
     

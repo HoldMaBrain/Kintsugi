@@ -11,6 +11,7 @@ import { useNavigate } from 'react-router-dom';
 import { createConversation, sendMessage, getConversation, deleteConversation, getConversations } from '@/lib/api';
 import { useToast } from '@/components/ui/use-toast';
 import ReactMarkdown from 'react-markdown';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 
 export default function Chat() {
   const { user, signOut, loading: authLoading } = useAuth();
@@ -337,6 +338,7 @@ export default function Chat() {
   }
 
   return (
+    <TooltipProvider>
     <div className="h-screen flex flex-col bg-gradient-to-br from-amber-50 via-white to-gold-50 relative overflow-hidden">
       {/* Animated background */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
@@ -583,9 +585,29 @@ export default function Chat() {
                       </div>
                       
                       {message.risk_level && message.risk_level !== 'info' && (
-                        <Badge variant={getRiskBadgeVariant(message.risk_level)} className="mt-2">
-                          {message.risk_level.toUpperCase()}
-                        </Badge>
+                        <TooltipProvider>
+                          <Tooltip delayDuration={300}>
+                            <TooltipTrigger asChild>
+                              <div className="mt-2 inline-block">
+                                <Badge variant={getRiskBadgeVariant(message.risk_level)} className="cursor-help">
+                                  {message.risk_level.toUpperCase()}
+                                </Badge>
+                              </div>
+                            </TooltipTrigger>
+                            <TooltipContent side="top" className="max-w-xs">
+                              <p className="font-semibold mb-1 text-gold-700">
+                                {message.risk_level === 'high' ? 'High Risk' : message.risk_level === 'medium' ? 'Medium Risk' : 'Low Risk'}
+                              </p>
+                              <p className="text-xs leading-relaxed">
+                                {message.risk_level === 'high' 
+                                  ? 'This response has been flagged for potential safety concerns. It may contain harmful, inconsiderate, or disconnected content that requires review.'
+                                  : message.risk_level === 'medium'
+                                  ? 'This response has been flagged with moderate safety concerns. It may need additional review to ensure it meets our standards.'
+                                  : 'This response has been flagged with minor safety concerns. It has been reviewed and approved.'}
+                              </p>
+                            </TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
                       )}
                       <Badge variant="warning" className="mt-2 ml-2">
                         Under Review
@@ -618,9 +640,29 @@ export default function Chat() {
                         </ReactMarkdown>
                       </div>
                       {message.risk_level && message.risk_level !== 'info' && (
-                        <Badge variant={getRiskBadgeVariant(message.risk_level)} className="mt-2">
-                          {message.risk_level.toUpperCase()}
-                        </Badge>
+                        <TooltipProvider>
+                          <Tooltip delayDuration={300}>
+                            <TooltipTrigger asChild>
+                              <div className="mt-2 inline-block">
+                                <Badge variant={getRiskBadgeVariant(message.risk_level)} className="cursor-help">
+                                  {message.risk_level.toUpperCase()}
+                                </Badge>
+                              </div>
+                            </TooltipTrigger>
+                            <TooltipContent side="top" className="max-w-xs">
+                              <p className="font-semibold mb-1 text-gold-700">
+                                {message.risk_level === 'high' ? 'High Risk' : message.risk_level === 'medium' ? 'Medium Risk' : 'Low Risk'}
+                              </p>
+                              <p className="text-xs leading-relaxed">
+                                {message.risk_level === 'high' 
+                                  ? 'This response has been flagged for potential safety concerns. It may contain harmful, inconsiderate, or disconnected content that requires review.'
+                                  : message.risk_level === 'medium'
+                                  ? 'This response has been flagged with moderate safety concerns. It may need additional review to ensure it meets our standards.'
+                                  : 'This response has been flagged with minor safety concerns. It has been reviewed and approved.'}
+                              </p>
+                            </TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
                       )}
                       <Badge variant="warning" className="mt-2 ml-2">
                         Under Review
@@ -649,9 +691,29 @@ export default function Chat() {
                     <p className="text-sm whitespace-pre-wrap">{message.content}</p>
                   )}
                   {message.risk_level && message.risk_level !== 'info' && message.sender === 'ai' && (!message.flagged || message.finalized) && (
-                    <Badge variant={getRiskBadgeVariant(message.risk_level)} className="mt-2">
-                      {message.risk_level.toUpperCase()}
-                    </Badge>
+                    <TooltipProvider>
+                      <Tooltip delayDuration={300}>
+                        <TooltipTrigger asChild>
+                          <div className="mt-2 inline-block">
+                            <Badge variant={getRiskBadgeVariant(message.risk_level)} className="cursor-help">
+                              {message.risk_level.toUpperCase()}
+                            </Badge>
+                          </div>
+                        </TooltipTrigger>
+                        <TooltipContent side="top" className="max-w-xs">
+                          <p className="font-semibold mb-1 text-gold-700">
+                            {message.risk_level === 'high' ? 'High Risk' : message.risk_level === 'medium' ? 'Medium Risk' : 'Low Risk'}
+                          </p>
+                          <p className="text-xs leading-relaxed">
+                            {message.risk_level === 'high' 
+                              ? 'This response has been flagged for potential safety concerns. It may contain harmful, inconsiderate, or disconnected content that requires review.'
+                              : message.risk_level === 'medium'
+                              ? 'This response has been flagged with moderate safety concerns. It may need additional review to ensure it meets our standards.'
+                              : 'This response has been flagged with minor safety concerns. It has been reviewed and approved.'}
+                          </p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
                   )}
                   </Card>
                 </motion.div>
@@ -761,5 +823,6 @@ export default function Chat() {
         </div>
       </div>
     </div>
+    </TooltipProvider>
   );
 }
