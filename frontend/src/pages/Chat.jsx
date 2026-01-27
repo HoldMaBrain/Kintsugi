@@ -594,7 +594,7 @@ export default function Chat() {
                                 </Badge>
                               </div>
                             </TooltipTrigger>
-                            <TooltipContent side="top" className="max-w-xs">
+                            <TooltipContent side="right" sideOffset={8} className="max-w-xs z-[100]" collisionPadding={20}>
                               <p className="font-semibold mb-1 text-gold-700">
                                 {message.risk_level === 'high' ? 'High Risk' : message.risk_level === 'medium' ? 'Medium Risk' : 'Low Risk'}
                               </p>
@@ -649,7 +649,7 @@ export default function Chat() {
                                 </Badge>
                               </div>
                             </TooltipTrigger>
-                            <TooltipContent side="top" className="max-w-xs">
+                            <TooltipContent side="right" sideOffset={8} className="max-w-xs z-[100]" collisionPadding={20}>
                               <p className="font-semibold mb-1 text-gold-700">
                                 {message.risk_level === 'high' ? 'High Risk' : message.risk_level === 'medium' ? 'Medium Risk' : 'Low Risk'}
                               </p>
@@ -700,7 +700,7 @@ export default function Chat() {
                             </Badge>
                           </div>
                         </TooltipTrigger>
-                        <TooltipContent side="top" className="max-w-xs">
+                        <TooltipContent side="right" sideOffset={8} className="max-w-xs z-[100]" collisionPadding={20}>
                           <p className="font-semibold mb-1 text-gold-700">
                             {message.risk_level === 'high' ? 'High Risk' : message.risk_level === 'medium' ? 'Medium Risk' : 'Low Risk'}
                           </p>

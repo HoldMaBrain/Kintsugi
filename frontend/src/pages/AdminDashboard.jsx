@@ -9,9 +9,9 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { ArrowLeft, Shield, TrendingUp, TrendingDown, AlertTriangle, CheckCircle, MessageSquare, BarChart3, Eye, Sparkles, Heart, Flower2, Leaf, Brain, ArrowDown, ArrowUp, BookOpen, Info } from 'lucide-react';
+import { ArrowLeft, Shield, TrendingUp, TrendingDown, AlertTriangle, CheckCircle, MessageSquare, BarChart3, Eye, Sparkles, Heart, Flower2, Leaf, Brain, ArrowDown, ArrowUp, BookOpen, Info, RefreshCw, TrendingUp as TrendingUpIcon, LineChart } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { getFlaggedMessages, reviewMessage, getMetrics, getReviewedMessages } from '@/lib/api';
+import { getFlaggedMessages, reviewMessage, getMetrics, getReviewedMessages, generateCorrectedResponse, getImprovementMetrics } from '@/lib/api';
 import { useToast } from '@/components/ui/use-toast';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 
@@ -22,6 +22,7 @@ export default function AdminDashboard() {
   const [flaggedMessages, setFlaggedMessages] = useState([]);
   const [reviewedMessages, setReviewedMessages] = useState([]);
   const [metrics, setMetrics] = useState(null);
+  const [improvementMetrics, setImprovementMetrics] = useState(null);
   const [selectedMessage, setSelectedMessage] = useState(null);
   const [reviewDialogOpen, setReviewDialogOpen] = useState(false);
   const [verdict, setVerdict] = useState('safe');
@@ -29,6 +30,7 @@ export default function AdminDashboard() {
   const [correctedResponse, setCorrectedResponse] = useState('');
   const [loading, setLoading] = useState(false);
   const [generatingResponse, setGeneratingResponse] = useState(false);
+  const [responseGenerated, setResponseGenerated] = useState(false);
   const [initialLoading, setInitialLoading] = useState(true);
   const [dataLoading, setDataLoading] = useState({
     flagged: false,
@@ -85,6 +87,13 @@ export default function AdminDashboard() {
         throw err;
       });
 
+      // Load improvement metrics in parallel
+      getImprovementMetrics().then(res => {
+        setImprovementMetrics(res);
+      }).catch(err => {
+        console.error('Error loading improvement metrics:', err);
+      });
+
       // Wait for all, but UI will show progressively
       await Promise.all([flaggedPromise, reviewedPromise, metricsPromise]);
     } catch (error) {
@@ -106,36 +115,72 @@ export default function AdminDashboard() {
     setSelectedMessage(message);
     setVerdict('safe');
     setFeedback('');
-    setCorrectedResponse(message.content || '');
+    setCorrectedResponse('');
+    setResponseGenerated(false);
     setReviewDialogOpen(true);
+  }
+
+  async function handleGenerateResponse() {
+    if (!selectedMessage || !feedback.trim()) {
+      toast({
+        title: 'Feedback Required',
+        description: 'Please provide feedback before generating a corrected response.',
+        variant: 'destructive',
+      });
+      return;
+    }
+    
+    setGeneratingResponse(true);
+    try {
+      const result = await generateCorrectedResponse(selectedMessage.id, feedback);
+      setCorrectedResponse(result.correctedResponse || '');
+      setResponseGenerated(true);
+      toast({
+        title: 'Success',
+        description: 'Corrected response generated. Please review and accept if satisfactory.',
+      });
+    } catch (error) {
+      console.error('Error generating corrected response:', error);
+      toast({
+        title: 'Error',
+        description: error.message || 'Failed to generate corrected response',
+        variant: 'destructive',
+      });
+    } finally {
+      setGeneratingResponse(false);
+    }
   }
 
   async function handleReview() {
     if (!selectedMessage) return;
+    
+    // If unsafe, require corrected response to be generated and accepted
+    if (verdict === 'unsafe' && (!correctedResponse || !correctedResponse.trim())) {
+      toast({
+        title: 'Corrected Response Required',
+        description: 'Please generate and accept a corrected response before submitting.',
+        variant: 'destructive',
+      });
+      return;
+    }
+    
     setLoading(true);
-    setGeneratingResponse(verdict === 'unsafe');
     try {
-      const result = await reviewMessage(
+      await reviewMessage(
         selectedMessage.id,
         verdict,
         feedback || null,
         verdict === 'unsafe' ? correctedResponse : null
       );
       
-      if (result.correctedResponse && verdict === 'unsafe') {
-        // Update the corrected response in the dialog
-        setCorrectedResponse(result.correctedResponse);
-        toast({
-          title: 'Success',
-          description: 'Corrected response generated and saved. Review submitted successfully.',
-        });
-      } else {
-        toast({
-          title: 'Success',
-          description: 'Review submitted successfully',
-        });
-      }
+      toast({
+        title: 'Success',
+        description: 'Review submitted successfully',
+      });
       setReviewDialogOpen(false);
+      // Reset state
+      setCorrectedResponse('');
+      setResponseGenerated(false);
       // Add a small delay before reloading to avoid rate limit issues
       setTimeout(async () => {
         await loadData(false);
@@ -162,7 +207,6 @@ export default function AdminDashboard() {
       }
     } finally {
       setLoading(false);
-      setGeneratingResponse(false);
     }
   }
 
@@ -335,6 +379,13 @@ export default function AdminDashboard() {
             >
               <BarChart3 className="h-4 w-4 mr-2" />
               Metrics
+            </TabsTrigger>
+            <TabsTrigger 
+              value="improvement"
+              className="data-[state=active]:bg-gradient-to-r data-[state=active]:from-gold-500 data-[state=active]:to-gold-600 data-[state=active]:text-white data-[state=active]:shadow-lg data-[state=active]:shadow-gold-500/40 transition-all rounded-lg"
+            >
+              <LineChart className="h-4 w-4 mr-2" />
+              Improvement
             </TabsTrigger>
           </TabsList>
 
@@ -989,7 +1040,29 @@ export default function AdminDashboard() {
                         <div className="h-64 flex items-end justify-between gap-1">
                           {metrics.hourlyData.map((hour, index) => {
                             const maxFlagged = Math.max(...metrics.hourlyData.map(h => h.flagged), 1);
-                            const height = maxFlagged > 0 ? (hour.flagged / maxFlagged) * 100 : 0;
+                            // Ultra-aggressive scaling for small datasets - make every small difference visible
+                            // For very small values (0-5), use extreme zoom to show differences clearly
+                            let scaleFactor = 1;
+                            let minHeight = 0;
+                            if (maxFlagged <= 2) {
+                              // Extreme zoom: each unit = 40% of chart height
+                              scaleFactor = 40;
+                              minHeight = hour.flagged > 0 ? 80 : 0; // 80% minimum for any non-zero
+                            } else if (maxFlagged <= 5) {
+                              // Strong zoom: each unit = 20% of chart height
+                              scaleFactor = 20;
+                              minHeight = hour.flagged > 0 ? 70 : 0; // 70% minimum for any non-zero
+                            } else if (maxFlagged <= 10) {
+                              // Moderate zoom: each unit = 10% of chart height
+                              scaleFactor = 10;
+                              minHeight = hour.flagged > 0 ? 60 : 0; // 60% minimum for any non-zero
+                            } else {
+                              // Normal scaling for larger datasets
+                              scaleFactor = 100 / maxFlagged;
+                              minHeight = hour.flagged > 0 ? 30 : 0;
+                            }
+                            const baseHeight = hour.flagged * scaleFactor;
+                            const height = Math.max(baseHeight, minHeight);
                             const isRecent = index >= metrics.hourlyData.length - 6; // Last 6 hours
                             
                             return (
@@ -1073,7 +1146,29 @@ export default function AdminDashboard() {
                         <div className="h-64 flex items-end justify-between gap-1">
                           {metrics.dailyData.map((day, index) => {
                             const maxFlagged = Math.max(...metrics.dailyData.map(d => d.flagged), 1);
-                            const height = maxFlagged > 0 ? (day.flagged / maxFlagged) * 100 : 0;
+                            // Ultra-aggressive scaling for small datasets - make every small difference visible
+                            // For very small values (0-5), use extreme zoom to show differences clearly
+                            let scaleFactor = 1;
+                            let minHeight = 0;
+                            if (maxFlagged <= 2) {
+                              // Extreme zoom: each unit = 40% of chart height
+                              scaleFactor = 40;
+                              minHeight = day.flagged > 0 ? 80 : 0; // 80% minimum for any non-zero
+                            } else if (maxFlagged <= 5) {
+                              // Strong zoom: each unit = 20% of chart height
+                              scaleFactor = 20;
+                              minHeight = day.flagged > 0 ? 70 : 0; // 70% minimum for any non-zero
+                            } else if (maxFlagged <= 10) {
+                              // Moderate zoom: each unit = 10% of chart height
+                              scaleFactor = 10;
+                              minHeight = day.flagged > 0 ? 60 : 0; // 60% minimum for any non-zero
+                            } else {
+                              // Normal scaling for larger datasets
+                              scaleFactor = 100 / maxFlagged;
+                              minHeight = day.flagged > 0 ? 30 : 0;
+                            }
+                            const baseHeight = day.flagged * scaleFactor;
+                            const height = Math.max(baseHeight, minHeight);
                             const isRecent = index >= metrics.dailyData.length - 7;
                             
                             return (
@@ -1254,6 +1349,459 @@ export default function AdminDashboard() {
               </motion.div>
             )}
           </TabsContent>
+
+          <TabsContent value="improvement" className="space-y-6">
+            {improvementMetrics ? (
+              <TooltipProvider>
+              <div className="space-y-6">
+                {/* Overall Improvement Card */}
+                <motion.div
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.3 }}
+                >
+                  <Card className="bg-gradient-to-br from-green-50/80 to-emerald-50/60 backdrop-blur-xl border-2 border-green-300/60 shadow-xl shadow-green-300/20 hover:shadow-2xl hover:shadow-green-400/30 transition-all duration-300">
+                    <CardHeader>
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <CardTitle className="text-2xl font-bold text-gray-800 flex items-center gap-2">
+                              <TrendingUpIcon className="h-6 w-6 text-green-600" />
+                              Overall Improvement
+                            </CardTitle>
+                            <Tooltip delayDuration={300}>
+                              <TooltipTrigger asChild>
+                                <Info className="h-4 w-4 text-gray-400 hover:text-gold-600 cursor-help transition-colors" />
+                              </TooltipTrigger>
+                              <TooltipContent side="top" className="max-w-xs">
+                                <p className="font-semibold mb-1 text-gold-700">Overall Improvement</p>
+                                <p className="text-xs leading-relaxed">
+                                  Percentage reduction in flagged message rate comparing recent batches to older batches. 
+                                  Calculated as: ((Older Avg Flagged Rate - Recent Avg Flagged Rate) / Older Avg Flagged Rate) × 100. 
+                                  Positive values indicate the AI is learning and improving from human feedback.
+                                </p>
+                              </TooltipContent>
+                            </Tooltip>
+                          </div>
+                          <CardDescription className="text-sm text-gray-600 mt-2">
+                            AI learning progress based on human feedback
+                          </CardDescription>
+                        </div>
+                        <div className="text-right">
+                          <div className={`text-4xl font-bold bg-clip-text text-transparent ${
+                            improvementMetrics.overallImprovement > 0 
+                              ? 'bg-gradient-to-r from-green-600 to-emerald-600' 
+                              : improvementMetrics.overallImprovement < 0
+                              ? 'bg-gradient-to-r from-red-600 to-orange-600'
+                              : 'bg-gradient-to-r from-gray-600 to-gray-400'
+                          }`}>
+                            {improvementMetrics.overallImprovement > 0 ? '+' : ''}
+                            {improvementMetrics.overallImprovement?.toFixed(1) || 0}%
+                          </div>
+                          <p className="text-xs text-gray-500 mt-1">
+                            {improvementMetrics.overallImprovement > 0 ? 'Reduction' : improvementMetrics.overallImprovement < 0 ? 'Increase' : 'No change'} in flagged rate
+                          </p>
+                        </div>
+                      </div>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="grid md:grid-cols-3 gap-4">
+                        <TooltipProvider>
+                          <div className="p-4 bg-white/60 backdrop-blur-sm rounded-lg border border-green-200/50">
+                            <div className="flex items-center gap-1 mb-1">
+                              <p className="text-xs text-gray-600">Recent Avg Flagged Rate</p>
+                              <Tooltip delayDuration={300}>
+                                <TooltipTrigger asChild>
+                                  <Info className="h-3 w-3 text-gray-400 hover:text-gold-600 cursor-help transition-colors" />
+                                </TooltipTrigger>
+                                <TooltipContent side="top" className="max-w-xs">
+                                  <p className="font-semibold mb-1 text-gold-700">Recent Avg Flagged Rate</p>
+                                  <p className="text-xs leading-relaxed">
+                                    Average flagged message rate across the last 10 batches of messages. 
+                                    Lower rates indicate better performance and learning from feedback.
+                                  </p>
+                                </TooltipContent>
+                              </Tooltip>
+                            </div>
+                            <p className="text-2xl font-bold text-green-600">
+                              {improvementMetrics.recentAvgFlaggedRate?.toFixed(1) || 0}%
+                            </p>
+                          </div>
+                          <div className="p-4 bg-white/60 backdrop-blur-sm rounded-lg border border-green-200/50">
+                            <div className="flex items-center gap-1 mb-1">
+                              <p className="text-xs text-gray-600">Older Avg Flagged Rate</p>
+                              <Tooltip delayDuration={300}>
+                                <TooltipTrigger asChild>
+                                  <Info className="h-3 w-3 text-gray-400 hover:text-gold-600 cursor-help transition-colors" />
+                                </TooltipTrigger>
+                                <TooltipContent side="top" className="max-w-xs">
+                                  <p className="font-semibold mb-1 text-gold-700">Older Avg Flagged Rate</p>
+                                  <p className="text-xs leading-relaxed">
+                                    Average flagged message rate across batches before the last 10 batches. 
+                                    Used as a baseline to compare against recent performance and calculate improvement.
+                                  </p>
+                                </TooltipContent>
+                              </Tooltip>
+                            </div>
+                            <p className="text-2xl font-bold text-amber-600">
+                              {improvementMetrics.olderAvgFlaggedRate?.toFixed(1) || 0}%
+                            </p>
+                          </div>
+                          <div className="p-4 bg-white/60 backdrop-blur-sm rounded-lg border border-green-200/50">
+                            <div className="flex items-center gap-1 mb-1">
+                              <p className="text-xs text-gray-600">Feedback Effectiveness</p>
+                              <Tooltip delayDuration={300}>
+                                <TooltipTrigger asChild>
+                                  <Info className="h-3 w-3 text-gray-400 hover:text-gold-600 cursor-help transition-colors" />
+                                </TooltipTrigger>
+                                <TooltipContent side="top" className="max-w-xs">
+                                  <p className="font-semibold mb-1 text-gold-700">Feedback Effectiveness</p>
+                                  <p className="text-xs leading-relaxed">
+                                    Average improvement per feedback provided. 
+                                    Calculated as: (Overall Improvement / Total Feedback Count). 
+                                    Higher values indicate each piece of feedback has a greater impact on AI learning.
+                                  </p>
+                                </TooltipContent>
+                              </Tooltip>
+                            </div>
+                            <p className="text-2xl font-bold text-blue-600">
+                              {improvementMetrics.feedbackEffectiveness?.toFixed(2) || 0}%
+                            </p>
+                            <p className="text-xs text-gray-500 mt-1">per feedback</p>
+                          </div>
+                        </TooltipProvider>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </motion.div>
+
+                {/* Improvement by Message Batch */}
+                <motion.div
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.3, delay: 0.1 }}
+                >
+                  <Card className="bg-white/70 backdrop-blur-xl border-2 border-gold-300/60 shadow-xl shadow-gold-300/20">
+                    <CardHeader>
+                      <div className="flex items-center gap-2">
+                        <CardTitle className="text-xl font-bold text-gray-800 flex items-center gap-2">
+                          <LineChart className="h-5 w-5 text-gold-600" />
+                          Improvement by Message Batch (Every 5 Messages)
+                        </CardTitle>
+                        <Tooltip delayDuration={300}>
+                          <TooltipTrigger asChild>
+                            <Info className="h-4 w-4 text-gray-400 hover:text-gold-600 cursor-help transition-colors" />
+                          </TooltipTrigger>
+                          <TooltipContent side="top" className="max-w-xs">
+                            <p className="font-semibold mb-1 text-gold-700">Improvement by Message Batch</p>
+                            <p className="text-xs leading-relaxed">
+                              Shows flagged message rate for each batch of 5 messages. 
+                              Recent batches (last 5) are highlighted in green. 
+                              A downward trend indicates the AI is learning from feedback and improving over time.
+                            </p>
+                          </TooltipContent>
+                        </Tooltip>
+                      </div>
+                      <CardDescription className="text-sm text-gray-600">
+                        Shows how flagged rate decreases as the AI learns from feedback over time
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="h-80 flex items-end justify-between gap-1">
+                        {improvementMetrics.improvementByBatch?.map((batch, index) => {
+                          const maxRate = Math.max(...improvementMetrics.improvementByBatch.map(b => b.flaggedRate), 1);
+                          // Ultra-aggressive scaling for small datasets - make every small difference visible
+                          // For percentage rates, use extreme zoom for small values
+                          let scaleFactor = 1;
+                          let minHeight = 0;
+                          if (maxRate <= 10) {
+                              // Extreme zoom: each 1% = 8% of chart height
+                              scaleFactor = 8;
+                              minHeight = batch.flaggedRate > 0 ? 75 : 0; // 75% minimum for any non-zero
+                            } else if (maxRate <= 25) {
+                              // Strong zoom: each 1% = 4% of chart height
+                              scaleFactor = 4;
+                              minHeight = batch.flaggedRate > 0 ? 70 : 0; // 70% minimum for any non-zero
+                            } else if (maxRate <= 50) {
+                              // Moderate zoom: each 1% = 2% of chart height
+                              scaleFactor = 2;
+                              minHeight = batch.flaggedRate > 0 ? 60 : 0; // 60% minimum for any non-zero
+                            } else {
+                              // Normal scaling for larger datasets
+                              scaleFactor = 100 / maxRate;
+                              minHeight = batch.flaggedRate > 0 ? 30 : 0;
+                            }
+                            const baseHeight = batch.flaggedRate * scaleFactor;
+                            const height = Math.max(baseHeight, minHeight);
+                          const isRecent = index >= improvementMetrics.improvementByBatch.length - 5;
+                          
+                          return (
+                            <div key={batch.batch} className="flex-1 flex flex-col items-center gap-1 group relative">
+                              <motion.div
+                                initial={{ height: 0 }}
+                                animate={{ height: `${height}%` }}
+                                transition={{ duration: 0.5, delay: index * 0.02 }}
+                                className={`w-full rounded-t transition-all ${
+                                  isRecent 
+                                    ? 'bg-gradient-to-t from-green-500 to-green-400' 
+                                    : 'bg-gradient-to-t from-amber-500 to-amber-400'
+                                } opacity-80 hover:opacity-100 group-hover:shadow-lg`}
+                                style={{ minHeight: batch.flaggedRate > 0 ? '4px' : '0' }}
+                              />
+                              {index % 3 === 0 && (
+                                <span className="text-xs text-gray-500 transform -rotate-45 origin-top-left whitespace-nowrap">
+                                  Batch {batch.batch}
+                                </span>
+                              )}
+                              <div className="hidden group-hover:block absolute -top-12 bg-gray-900 text-white text-xs px-2 py-1 rounded z-10 whitespace-nowrap">
+                                <div>Batch {batch.batch}</div>
+                                <div>Rate: {batch.flaggedRate.toFixed(1)}%</div>
+                                <div>Feedback: {batch.feedbackCount}</div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                      <div className="flex items-center justify-center gap-4 mt-4 pt-4 border-t border-gold-200/50">
+                        <div className="flex items-center gap-2">
+                          <div className="w-4 h-4 bg-amber-500 rounded"></div>
+                          <span className="text-xs text-gray-600">Earlier Batches</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <div className="w-4 h-4 bg-green-500 rounded"></div>
+                          <span className="text-xs text-gray-600">Recent Batches (Last 5)</span>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </motion.div>
+
+                {/* Daily Improvement with Feedback Correlation */}
+                <motion.div
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.3, delay: 0.2 }}
+                >
+                  <Card className="bg-white/70 backdrop-blur-xl border-2 border-purple-300/60 shadow-xl shadow-purple-300/20">
+                    <CardHeader>
+                      <div className="flex items-center gap-2">
+                        <CardTitle className="text-xl font-bold text-gray-800 flex items-center gap-2">
+                          <Brain className="h-5 w-5 text-purple-600" />
+                          Daily Improvement & Feedback Correlation (Last 30 Days)
+                        </CardTitle>
+                        <Tooltip delayDuration={300}>
+                          <TooltipTrigger asChild>
+                            <Info className="h-4 w-4 text-gray-400 hover:text-gold-600 cursor-help transition-colors" />
+                          </TooltipTrigger>
+                          <TooltipContent side="top" className="max-w-xs">
+                            <p className="font-semibold mb-1 text-gold-700">Daily Improvement & Feedback Correlation</p>
+                            <p className="text-xs leading-relaxed">
+                              Shows daily flagged message rates (bars) alongside cumulative feedback count (purple line). 
+                              As cumulative feedback increases, flagged rates should decrease, demonstrating that the AI is learning from human feedback over time.
+                            </p>
+                          </TooltipContent>
+                        </Tooltip>
+                      </div>
+                      <CardDescription className="text-sm text-gray-600">
+                        Shows how flagged rates decrease as cumulative feedback increases
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="h-80 flex items-end justify-between gap-1">
+                        {improvementMetrics.improvementByDay?.map((day, index) => {
+                          const maxRate = Math.max(...improvementMetrics.improvementByDay.map(d => d.flaggedRate), 1);
+                          const maxFeedback = Math.max(...improvementMetrics.improvementByDay.map(d => d.cumulativeFeedback), 1);
+                          // Ultra-aggressive scaling for flagged rate bars
+                          let rateScaleFactor = 1;
+                          let rateMinHeight = 0;
+                          if (maxRate <= 10) {
+                              // Extreme zoom: each 1% = 8% of chart height
+                              rateScaleFactor = 8;
+                              rateMinHeight = day.flaggedRate > 0 ? 75 : 0; // 75% minimum for any non-zero
+                            } else if (maxRate <= 25) {
+                              // Strong zoom: each 1% = 4% of chart height
+                              rateScaleFactor = 4;
+                              rateMinHeight = day.flaggedRate > 0 ? 70 : 0; // 70% minimum for any non-zero
+                            } else if (maxRate <= 50) {
+                              // Moderate zoom: each 1% = 2% of chart height
+                              rateScaleFactor = 2;
+                              rateMinHeight = day.flaggedRate > 0 ? 60 : 0; // 60% minimum for any non-zero
+                            } else {
+                              // Normal scaling for larger datasets
+                              rateScaleFactor = 100 / maxRate;
+                              rateMinHeight = day.flaggedRate > 0 ? 30 : 0;
+                            }
+                            const rateBaseHeight = day.flaggedRate * rateScaleFactor;
+                            const height = Math.max(rateBaseHeight, rateMinHeight);
+                          // Ultra-aggressive scaling for feedback bars
+                          let feedbackScaleFactor = 1;
+                          let feedbackMinHeight = 0;
+                          if (maxFeedback <= 2) {
+                              // Extreme zoom: each unit = 15% of chart height
+                              feedbackScaleFactor = 15;
+                              feedbackMinHeight = day.cumulativeFeedback > 0 ? 80 : 0; // 80% minimum for any non-zero
+                            } else if (maxFeedback <= 5) {
+                              // Strong zoom: each unit = 6% of chart height
+                              feedbackScaleFactor = 6;
+                              feedbackMinHeight = day.cumulativeFeedback > 0 ? 70 : 0; // 70% minimum for any non-zero
+                            } else if (maxFeedback <= 10) {
+                              // Moderate zoom: each unit = 3% of chart height
+                              feedbackScaleFactor = 3;
+                              feedbackMinHeight = day.cumulativeFeedback > 0 ? 60 : 0; // 60% minimum for any non-zero
+                            } else {
+                              // Normal scaling for larger datasets
+                              feedbackScaleFactor = 30 / maxFeedback;
+                              feedbackMinHeight = day.cumulativeFeedback > 0 ? 20 : 0;
+                            }
+                            const feedbackBaseHeight = day.cumulativeFeedback * feedbackScaleFactor;
+                            const feedbackHeight = Math.max(feedbackBaseHeight, feedbackMinHeight);
+                          const isRecent = index >= improvementMetrics.improvementByDay.length - 7;
+                          
+                          return (
+                            <div key={day.date} className="flex-1 flex flex-col items-center gap-1 group relative">
+                              <div className="w-full flex items-end gap-0.5">
+                                <motion.div
+                                  initial={{ height: 0 }}
+                                  animate={{ height: `${height}%` }}
+                                  transition={{ duration: 0.5, delay: index * 0.02 }}
+                                  className={`flex-1 rounded-t transition-all ${
+                                    isRecent 
+                                      ? 'bg-gradient-to-t from-green-500 to-green-400' 
+                                      : 'bg-gradient-to-t from-amber-500 to-amber-400'
+                                  } opacity-80 hover:opacity-100 group-hover:shadow-lg`}
+                                  style={{ minHeight: day.flaggedRate > 0 ? '4px' : '0' }}
+                                />
+                                <motion.div
+                                  initial={{ height: 0 }}
+                                  animate={{ height: `${feedbackHeight}%` }}
+                                  transition={{ duration: 0.5, delay: index * 0.02 + 0.1 }}
+                                  className="w-1 bg-gradient-to-t from-purple-500 to-purple-400 rounded-t opacity-60"
+                                  style={{ minHeight: day.cumulativeFeedback > 0 ? '2px' : '0' }}
+                                />
+                              </div>
+                              {index % 5 === 0 && (
+                                <span className="text-xs text-gray-500 transform -rotate-45 origin-top-left whitespace-nowrap">
+                                  {new Date(day.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                                </span>
+                              )}
+                              <div className="hidden group-hover:block absolute -top-16 bg-gray-900 text-white text-xs px-2 py-1 rounded z-10 whitespace-nowrap">
+                                <div>Date: {day.date}</div>
+                                <div>Flagged Rate: {day.flaggedRate.toFixed(1)}%</div>
+                                <div>Feedback: {day.cumulativeFeedback}</div>
+                                <div>New Feedback: {day.feedbackCount}</div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                      <div className="flex items-center justify-center gap-4 mt-4 pt-4 border-t border-purple-200/50">
+                        <div className="flex items-center gap-2">
+                          <div className="w-4 h-4 bg-amber-500 rounded"></div>
+                          <span className="text-xs text-gray-600">Flagged Rate (Earlier)</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <div className="w-4 h-4 bg-green-500 rounded"></div>
+                          <span className="text-xs text-gray-600">Flagged Rate (Recent)</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <div className="w-1 h-4 bg-purple-500 rounded"></div>
+                          <span className="text-xs text-gray-600">Cumulative Feedback</span>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </motion.div>
+
+                {/* Key Metrics */}
+                <motion.div
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.3, delay: 0.3 }}
+                  className="grid md:grid-cols-2 gap-6"
+                >
+                    <Card className="bg-white/70 backdrop-blur-xl border-2 border-blue-300/60 shadow-xl shadow-blue-300/20">
+                      <CardHeader>
+                        <div className="flex items-center gap-2">
+                          <CardTitle className="text-lg font-bold text-gray-800">Total Feedback Provided</CardTitle>
+                          <Tooltip delayDuration={300}>
+                            <TooltipTrigger asChild>
+                              <Info className="h-3.5 w-3.5 text-gray-400 hover:text-gold-600 cursor-help transition-colors" />
+                            </TooltipTrigger>
+                            <TooltipContent side="top" className="max-w-xs">
+                              <p className="font-semibold mb-1 text-gold-700">Total Feedback Provided</p>
+                              <p className="text-xs leading-relaxed">
+                                Total number of feedback entries stored in the database that the AI uses for learning. 
+                                Each feedback entry contains the original user prompt, unsafe response, human feedback, and corrected response.
+                              </p>
+                            </TooltipContent>
+                          </Tooltip>
+                        </div>
+                        <CardDescription className="text-sm text-gray-600">
+                          Human feedback that the AI has learned from
+                        </CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="text-4xl font-bold bg-gradient-to-r from-blue-600 to-blue-500 bg-clip-text text-transparent">
+                          {improvementMetrics.totalFeedback || 0}
+                        </div>
+                      </CardContent>
+                    </Card>
+                    <Card className="bg-white/70 backdrop-blur-xl border-2 border-indigo-300/60 shadow-xl shadow-indigo-300/20">
+                      <CardHeader>
+                        <div className="flex items-center gap-2">
+                          <CardTitle className="text-lg font-bold text-gray-800">Learning from Feedback</CardTitle>
+                          <Tooltip delayDuration={300}>
+                            <TooltipTrigger asChild>
+                              <Info className="h-3.5 w-3.5 text-gray-400 hover:text-gold-600 cursor-help transition-colors" />
+                            </TooltipTrigger>
+                            <TooltipContent side="top" className="max-w-xs">
+                              <p className="font-semibold mb-1 text-gold-700">Learning from Feedback</p>
+                              <p className="text-xs leading-relaxed">
+                                Percentage improvement in flagged rate comparing batches after feedback was provided to batches before feedback. 
+                                Positive values indicate the AI is learning from human feedback.
+                              </p>
+                            </TooltipContent>
+                          </Tooltip>
+                        </div>
+                        <CardDescription className="text-sm text-gray-600">
+                          AI improvement after feedback
+                        </CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        <div className={`text-4xl font-bold bg-clip-text text-transparent ${
+                          improvementMetrics.feedbackLearningRate > 0 
+                            ? 'bg-gradient-to-r from-green-600 to-emerald-600' 
+                            : improvementMetrics.feedbackLearningRate < 0
+                            ? 'bg-gradient-to-r from-red-600 to-orange-600'
+                            : 'bg-gradient-to-r from-gray-600 to-gray-400'
+                        }`}>
+                          {improvementMetrics.feedbackLearningRate > 0 ? '+' : ''}
+                          {improvementMetrics.feedbackLearningRate?.toFixed(1) || 0}%
+                        </div>
+                      </CardContent>
+                    </Card>
+                </motion.div>
+              </div>
+              </TooltipProvider>
+            ) : (
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ duration: 0.3 }}
+              >
+                <Card className="bg-white/60 backdrop-blur-xl border-2 border-gold-200/50 shadow-lg shadow-gold-200/20">
+                  <CardContent className="py-16 text-center">
+                    <motion.div
+                      animate={{ rotate: 360 }}
+                      transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+                      className="rounded-full h-12 w-12 border-4 border-gold-500 border-t-transparent mx-auto mb-4"
+                    />
+                    <p className="text-gray-600">Loading improvement metrics...</p>
+                  </CardContent>
+                </Card>
+              </motion.div>
+            )}
+          </TabsContent>
         </Tabs>
 
         {/* Review Dialog with enhanced styling */}
@@ -1308,14 +1856,40 @@ export default function AdminDashboard() {
                         disabled={generatingResponse}
                       />
                       <p className="text-xs text-muted-foreground mt-2 font-medium">
-                        A corrected response will be automatically generated based on your feedback.
+                        Provide feedback, then click "Generate Corrected Response" to create an AI-generated correction.
                       </p>
                     </div>
+                    {!responseGenerated && (
+                      <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
+                        <Button
+                          type="button"
+                          onClick={handleGenerateResponse}
+                          disabled={!feedback.trim() || generatingResponse}
+                          className="w-full mt-3 bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 shadow-lg shadow-blue-500/40 hover:shadow-xl hover:shadow-blue-500/50 disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          {generatingResponse ? (
+                            <>
+                              <motion.div
+                                animate={{ rotate: 360 }}
+                                transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+                                className="rounded-full h-4 w-4 border-2 border-white border-t-transparent mr-2"
+                              />
+                              Generating Response...
+                            </>
+                          ) : (
+                            <>
+                              <Sparkles className="h-4 w-4 mr-2" />
+                              Generate Corrected Response
+                            </>
+                          )}
+                        </Button>
+                      </motion.div>
+                    )}
                     {generatingResponse && (
                       <motion.div
                         initial={{ opacity: 0, scale: 0.95 }}
                         animate={{ opacity: 1, scale: 1 }}
-                        className="p-4 bg-gradient-to-br from-blue-50/80 to-blue-100/50 backdrop-blur-sm border-2 border-blue-300/60 rounded-lg shadow-md"
+                        className="p-4 bg-gradient-to-br from-blue-50/80 to-blue-100/50 backdrop-blur-sm border-2 border-blue-300/60 rounded-lg shadow-md mt-3"
                       >
                         <div className="flex items-center gap-3">
                           <motion.div
@@ -1329,7 +1903,7 @@ export default function AdminDashboard() {
                         </div>
                       </motion.div>
                     )}
-                    {correctedResponse && !generatingResponse && (
+                    {correctedResponse && !generatingResponse && responseGenerated && (
                       <div>
                         <Label className="text-sm font-bold mb-3 block text-gray-700 flex items-center gap-2">
                           <Sparkles className="h-4 w-4 text-green-600" />
@@ -1341,8 +1915,34 @@ export default function AdminDashboard() {
                           className="mt-2 min-h-[150px] bg-white/80 backdrop-blur-sm border-2 border-green-300/60 focus:border-green-400/70 focus:ring-2 focus:ring-green-300/30"
                           placeholder="Corrected response will appear here..."
                         />
+                        <div className="flex gap-2 mt-3">
+                          <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              onClick={() => {
+                                setCorrectedResponse('');
+                                setResponseGenerated(false);
+                              }}
+                              className="bg-white/60 backdrop-blur-sm border-2 border-gray-300/50 hover:bg-white/80"
+                            >
+                              Edit Feedback & Regenerate
+                            </Button>
+                          </motion.div>
+                          <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
+                            <Button
+                              type="button"
+                              onClick={handleGenerateResponse}
+                              disabled={!feedback.trim() || generatingResponse}
+                              className="bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 shadow-lg shadow-blue-500/40 hover:shadow-xl hover:shadow-blue-500/50 disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                              <RefreshCw className="h-4 w-4 mr-2" />
+                              Regenerate Response
+                            </Button>
+                          </motion.div>
+                        </div>
                         <p className="text-xs text-muted-foreground mt-2 font-medium">
-                          You can edit this response if needed before submitting.
+                          Review the generated response. You can edit it manually if needed. Click "Accept & Submit Review" when satisfied.
                         </p>
                       </div>
                     )}
@@ -1354,22 +1954,41 @@ export default function AdminDashboard() {
               <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
                 <Button 
                   variant="outline" 
-                  onClick={() => setReviewDialogOpen(false)}
+                  onClick={() => {
+                    setReviewDialogOpen(false);
+                    setCorrectedResponse('');
+                    setResponseGenerated(false);
+                  }}
                   className="bg-white/60 backdrop-blur-sm border-2 border-gold-200/50 hover:bg-white/80 hover:shadow-md hover:shadow-gold-300/30"
                 >
                   Cancel
                 </Button>
               </motion.div>
-              <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
-                <Button
-                  variant="gold"
-                  onClick={handleReview}
-                  disabled={loading || generatingResponse || (verdict === 'unsafe' && !feedback.trim())}
-                  className="bg-gradient-to-r from-gold-500 to-gold-600 hover:from-gold-600 hover:to-gold-700 shadow-lg shadow-gold-500/40 hover:shadow-xl hover:shadow-gold-500/50 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {generatingResponse ? 'Generating Response...' : loading ? 'Submitting...' : 'Submit Review'}
-                </Button>
-              </motion.div>
+              {verdict === 'unsafe' && responseGenerated && (
+                <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
+                  <Button
+                    variant="gold"
+                    onClick={handleReview}
+                    disabled={loading || !correctedResponse.trim()}
+                    className="bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 shadow-lg shadow-green-500/40 hover:shadow-xl hover:shadow-green-500/50 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <CheckCircle className="h-4 w-4 mr-2" />
+                    {loading ? 'Submitting...' : 'Accept & Submit Review'}
+                  </Button>
+                </motion.div>
+              )}
+              {verdict === 'safe' && (
+                <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
+                  <Button
+                    variant="gold"
+                    onClick={handleReview}
+                    disabled={loading}
+                    className="bg-gradient-to-r from-gold-500 to-gold-600 hover:from-gold-600 hover:to-gold-700 shadow-lg shadow-gold-500/40 hover:shadow-xl hover:shadow-gold-500/50 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {loading ? 'Submitting...' : 'Submit Review'}
+                  </Button>
+                </motion.div>
+              )}
             </DialogFooter>
           </DialogContent>
         </Dialog>

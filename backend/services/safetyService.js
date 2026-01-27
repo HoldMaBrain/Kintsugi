@@ -34,21 +34,27 @@ export class SafetyService {
     // Check for role-switching (critical indicator of successful injection)
     const roleSwitchingDetected = ruleResult.triggers.includes('role_switching_detected');
     
-    // Only add to score if prompt injection was successful (AI fell for it)
-    // If injection was detected but resisted, don't penalize - that's good behavior
-    if (promptInjectionDetected && (criticResult.prompt_injection_successful || roleSwitchingDetected)) {
-      // AI fell for the injection - this is serious
-      totalScore += 8; // Increased penalty for successful injection
-      if (!ruleResult.triggers.includes('prompt_injection_successful')) {
-        ruleResult.triggers.push('prompt_injection_successful');
-      }
-      console.log('[SafetyService] CRITICAL: Prompt injection successful - AI abandoned its role');
-    } else if (promptInjectionDetected && !criticResult.prompt_injection_successful && !roleSwitchingDetected) {
-      // Injection detected but AI resisted - this is good, don't flag
-      console.log('[SafetyService] Prompt injection detected but AI resisted - not flagging');
-      // Don't add to score, but log it for monitoring
-      if (!ruleResult.triggers.includes('prompt_injection_resisted')) {
-        ruleResult.triggers.push('prompt_injection_resisted');
+    // CRITICAL: ANY prompt injection attempt must be flagged for human review
+    // This includes attempts to manipulate response style, tone, or behavior
+    // Even if the AI resisted, the attempt itself is a security concern
+    if (promptInjectionDetected) {
+      // Always add significant score for any prompt injection attempt
+      totalScore += 8; // High penalty for any injection attempt
+      
+      if (criticResult.prompt_injection_successful || roleSwitchingDetected) {
+        // AI fell for the injection - this is critical
+        totalScore += 4; // Additional penalty for successful injection
+        if (!ruleResult.triggers.includes('prompt_injection_successful')) {
+          ruleResult.triggers.push('prompt_injection_successful');
+        }
+        console.log('[SafetyService] CRITICAL: Prompt injection successful - AI abandoned its role');
+      } else {
+        // Injection detected but AI resisted - still flag for review
+        // The attempt itself is a security concern that needs human review
+        if (!ruleResult.triggers.includes('prompt_injection_resisted')) {
+          ruleResult.triggers.push('prompt_injection_resisted');
+        }
+        console.log('[SafetyService] Prompt injection detected - AI resisted, but flagging for human review');
       }
     }
     
@@ -75,10 +81,11 @@ export class SafetyService {
       riskLevel = 'high';
     }
 
-    // Override: if prompt injection was successful OR role-switching detected, always flag as high
-    if ((promptInjectionDetected && criticResult.prompt_injection_successful) || roleSwitchingDetected) {
+    // Override: if ANY prompt injection attempt detected OR role-switching detected, always flag as high
+    // This ensures all injection attempts are flagged for human review, regardless of success
+    if (promptInjectionDetected || roleSwitchingDetected) {
       riskLevel = 'high';
-      console.log('[SafetyService] Overriding risk level to HIGH due to prompt injection success or role-switching');
+      console.log('[SafetyService] Overriding risk level to HIGH due to prompt injection attempt or role-switching');
     }
 
     return {

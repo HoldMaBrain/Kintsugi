@@ -284,6 +284,20 @@ export async function getFlaggedMessages() {
   return response.json();
 }
 
+export async function generateCorrectedResponse(messageId, feedback) {
+  const headers = await getAuthHeaders();
+  const response = await fetch('/api/admin/generate-corrected-response', {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ messageId, feedback }),
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: 'Failed to generate corrected response' }));
+    throw new Error(error.error || 'Failed to generate corrected response');
+  }
+  return response.json();
+}
+
 export async function reviewMessage(messageId, verdict, feedback, correctedResponse) {
   const headers = await getAuthHeaders();
   const response = await fetch('/api/admin/review', {
@@ -291,7 +305,10 @@ export async function reviewMessage(messageId, verdict, feedback, correctedRespo
     headers,
     body: JSON.stringify({ messageId, verdict, feedback, correctedResponse }),
   });
-  if (!response.ok) throw new Error('Failed to review message');
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: 'Failed to review message' }));
+    throw new Error(error.error || 'Failed to review message');
+  }
   return response.json();
 }
 
@@ -306,5 +323,12 @@ export async function getReviewedMessages() {
   const headers = await getAuthHeaders();
   const response = await fetch('/api/admin/reviewed', { headers });
   if (!response.ok) throw new Error('Failed to get reviewed messages');
+  return response.json();
+}
+
+export async function getImprovementMetrics() {
+  const headers = await getAuthHeaders();
+  const response = await fetch('/api/admin/improvement', { headers });
+  if (!response.ok) throw new Error('Failed to get improvement metrics');
   return response.json();
 }

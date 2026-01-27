@@ -100,6 +100,23 @@ export const PROMPT_INJECTION_PATTERNS = [
   /transition (to|into)/i,
   /morph (into|to)/i,
   /transform (into|to)/i,
+  // Response style manipulation - attempts to change HOW the AI responds
+  /respond as if/i,
+  /respond (with|in) (a|an) (different|specific|certain) (tone|style|way|manner)/i,
+  /let (that|this|it) .* (influence|affect|change) (your|the) (tone|style|response|way)/i,
+  /make your response (more|less|somewhat|slightly|subtly) (.*)/i,
+  /influence (your|the) (tone|style|response|way)/i,
+  /change (your|the) (tone|style|response|way)/i,
+  /adjust (your|the) (tone|style|response|way)/i,
+  /modify (your|the) (tone|style|response|way)/i,
+  /(subtly|slightly|gently) (influence|affect|change) (your|the) (tone|style|response)/i,
+  /respond (with|in) (uncertainty|doubt|hesitation|confidence|certainty)/i,
+  /respond (as if|like) (you|you're) (are|were) (unsure|uncertain|doubtful|hesitant)/i,
+  /respond (as if|like) (you|you're) (are|were) (sure|certain|confident)/i,
+  /(be|sound|seem) (more|less) (uncertain|sure|confident|doubtful|hesitant)/i,
+  /(be|sound|seem) (somewhat|slightly|subtly) (uncertain|sure|confident|doubtful|hesitant)/i,
+  /(tone|style|response) (should|must|needs to) (be|sound|seem)/i,
+  /(tone|style|response) (should|must) (reflect|show|indicate|suggest)/i,
 ];
 
 export function checkCrisisKeywords(text) {

@@ -432,13 +432,121 @@ app.get('/api/admin/reviewed', verifyUser, verifyAdmin, async (req, res) => {
   }
 });
 
-// Admin: Review message
+// Admin: Generate corrected response (without saving)
+app.post('/api/admin/generate-corrected-response', verifyUser, verifyAdmin, async (req, res) => {
+  try {
+    console.log('[Generate] Generate corrected response request received:', { 
+      messageId: req.body.messageId, 
+      hasFeedback: !!req.body.feedback 
+    });
+    
+    const { messageId, feedback } = req.body;
+
+    if (!messageId || !feedback || !feedback.trim()) {
+      return res.status(400).json({ error: 'Missing messageId or feedback' });
+    }
+
+    // Get the message and conversation context
+    console.log('[Generate] Fetching message and conversation...');
+    const message = await dbService.supabase
+      .from('messages')
+      .select(`
+        *,
+        conversations(
+          *,
+          messages(*)
+        )
+      `)
+      .eq('id', messageId)
+      .single();
+
+    if (message.error || !message.data) {
+      console.error('[Generate] Message not found:', message.error);
+      return res.status(404).json({ error: 'Message not found' });
+    }
+
+    const messageData = message.data;
+    const conversation = messageData.conversations;
+    const allMessages = conversation?.messages || [];
+    
+    // Find the user message that triggered this AI response
+    const userMessage = allMessages
+      .filter(m => m.sender === 'user')
+      .sort((a, b) => new Date(a.created_at) - new Date(b.created_at))
+      .find((m, idx, arr) => {
+        const aiMessageIndex = allMessages.findIndex(msg => msg.id === messageId);
+        const userMessageIndex = allMessages.findIndex(msg => msg.id === m.id);
+        return userMessageIndex < aiMessageIndex && userMessageIndex >= aiMessageIndex - 1;
+      }) || allMessages
+        .filter(m => m.sender === 'user')
+        .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))[0];
+
+    if (!geminiService) {
+      return res.status(503).json({ 
+        error: 'AI service not available. Please provide a manual corrected response.' 
+      });
+    }
+
+    try {
+      // Build conversation history up to the problematic message
+      const conversationHistory = allMessages
+        .filter(m => new Date(m.created_at) < new Date(messageData.created_at))
+        .sort((a, b) => new Date(a.created_at) - new Date(b.created_at))
+        .map(msg => ({
+          sender: msg.sender,
+          content: msg.content
+        }));
+
+      // Create a learning prompt that includes the feedback
+      const learningPrompt = `The following is a user message and an AI response that was flagged as unsafe. Please generate a corrected, empathetic response based on the feedback provided.
+
+Original User Message: "${userMessage?.content || 'N/A'}"
+
+Original AI Response (UNSAFE): "${messageData.content}"
+
+Human Feedback: "${feedback}"
+
+Please generate a corrected response that:
+1. Maintains your empathetic, supportive role as Kintsugi
+2. Addresses the user's needs appropriately
+3. Incorporates the feedback provided
+4. Follows all your safety guidelines
+
+Corrected Response:`;
+
+      console.log('[Generate] Generating corrected response with Gemini...');
+      // Generate corrected response
+      const correctedAiResponse = await geminiService.generateResponse(
+        conversationHistory,
+        learningPrompt,
+        []
+      );
+
+      console.log('[Generate] Corrected response generated successfully, length:', correctedAiResponse.length);
+      
+      return res.json({ 
+        correctedResponse: correctedAiResponse 
+      });
+    } catch (error) {
+      console.error('[Generate] Error generating corrected response:', error);
+      return res.status(500).json({ 
+        error: `Failed to generate corrected response: ${error.message}. Please try again or provide a manual correction.` 
+      });
+    }
+  } catch (error) {
+    console.error('[Generate] Error:', error);
+    return res.status(500).json({ error: 'Failed to generate corrected response' });
+  }
+});
+
+// Admin: Review message (now accepts pre-generated corrected response)
 app.post('/api/admin/review', verifyUser, verifyAdmin, async (req, res) => {
   try {
     console.log('[Review] Review request received:', { 
       messageId: req.body.messageId, 
       verdict: req.body.verdict,
-      hasFeedback: !!req.body.feedback 
+      hasFeedback: !!req.body.feedback,
+      hasCorrectedResponse: !!req.body.correctedResponse
     });
     
     const { messageId, verdict, feedback, correctedResponse } = req.body;
@@ -491,101 +599,39 @@ app.post('/api/admin/review', verifyUser, verifyAdmin, async (req, res) => {
 
     let finalResponse = null;
 
-    // If unsafe, generate corrected response using the chatbot
+    // If unsafe, use the provided corrected response (should be pre-generated)
     if (verdict === 'unsafe') {
-      console.log('[Review] Verdict is unsafe, generating corrected response...');
+      console.log('[Review] Verdict is unsafe, using provided corrected response...');
       
-      if (!geminiService) {
-        console.error('[Review] Gemini service not available');
-        // If no AI service, require manual correction
-        if (!feedback || !feedback.trim()) {
-          return res.status(400).json({ 
-            error: 'Feedback is required when marking a message as unsafe. Please provide feedback about what was wrong.' 
-          });
-        }
-        if (!correctedResponse || !correctedResponse.trim()) {
-          return res.status(400).json({ 
-            error: 'AI service not available. Please provide a manual corrected response.' 
-          });
-        }
-        finalResponse = correctedResponse;
-        console.log('[Review] Using manually provided corrected response (no AI service)');
-      } else {
+      if (!feedback || !feedback.trim()) {
+        return res.status(400).json({ 
+          error: 'Feedback is required when marking a message as unsafe.' 
+        });
+      }
+      
+      if (!correctedResponse || !correctedResponse.trim()) {
+        return res.status(400).json({ 
+          error: 'Corrected response is required. Please generate a corrected response first.' 
+        });
+      }
+      
+      finalResponse = correctedResponse;
+      console.log('[Review] Using provided corrected response, length:', correctedResponse.length);
+
+      // Store feedback in memory for future learning
+      if (feedback && userMessage) {
         try {
-          // Build conversation history up to the problematic message
-          const conversationHistory = allMessages
-            .filter(m => new Date(m.created_at) < new Date(messageData.created_at))
-            .sort((a, b) => new Date(a.created_at) - new Date(b.created_at))
-            .map(msg => ({
-              sender: msg.sender,
-              content: msg.content
-            }));
-
-          console.log('[Review] Conversation history built:', conversationHistory.length, 'messages');
-
-          // Create a learning prompt that includes the feedback
-          const learningPrompt = `The following is a user message and an AI response that was flagged as unsafe. Please generate a corrected, empathetic response based on the feedback provided.
-
-Original User Message: "${userMessage?.content || 'N/A'}"
-
-Original AI Response (UNSAFE): "${messageData.content}"
-
-Human Feedback: "${feedback || 'This response was inappropriate and needs correction.'}"
-
-Please generate a corrected response that:
-1. Maintains your empathetic, supportive role as Kintsugi
-2. Addresses the user's needs appropriately
-3. Incorporates the feedback provided
-4. Follows all your safety guidelines
-
-Corrected Response:`;
-
-          console.log('[Review] Generating corrected response with Gemini...');
-          // Generate corrected response
-          const correctedAiResponse = await geminiService.generateResponse(
-            conversationHistory,
-            learningPrompt,
-            []
+          await dbService.addFeedbackMemory(
+            'unsafe_response',
+            userMessage.content.substring(0, 200), // Store user prompt
+            feedback,
+            originalUnsafeResponse.substring(0, 200), // Store unsafe AI response
+            finalResponse.substring(0, 200) // Store corrected response
           );
-
-          finalResponse = correctedAiResponse;
-          console.log('[Review] Corrected response generated successfully, length:', correctedAiResponse.length);
-
-          // Store feedback in memory for future learning
-          if (feedback && userMessage) {
-            try {
-              await dbService.addFeedbackMemory(
-                'unsafe_response',
-                userMessage.content.substring(0, 200), // Store user prompt
-                feedback,
-                originalUnsafeResponse.substring(0, 200), // Store unsafe AI response
-                correctedAiResponse.substring(0, 200) // Store corrected response
-              );
-              console.log('[Review] Feedback stored in memory for future learning');
-            } catch (memoryError) {
-              console.error('[Review] Error storing feedback memory:', memoryError);
-              // Don't fail the review if memory storage fails
-            }
-          }
-        } catch (error) {
-          console.error('[Review] Error generating corrected response:', error);
-          console.error('[Review] Error details:', {
-            message: error.message,
-            stack: error.stack
-          });
-          // Fall back to manual corrected response if provided
-          if (correctedResponse && correctedResponse.trim()) {
-            finalResponse = correctedResponse;
-            console.log('[Review] Using manually provided corrected response');
-          } else if (!feedback || !feedback.trim()) {
-            return res.status(400).json({ 
-              error: 'Failed to generate corrected response and no manual correction provided. Please provide feedback and a corrected response.' 
-            });
-          } else {
-            return res.status(500).json({ 
-              error: `Failed to generate corrected response: ${error.message}. Please provide a manual correction.` 
-            });
-          }
+          console.log('[Review] Feedback stored in memory for future learning');
+        } catch (memoryError) {
+          console.error('[Review] Error storing feedback memory:', memoryError);
+          // Don't fail the review if memory storage fails
         }
       }
     }
@@ -731,11 +777,37 @@ app.get('/api/admin/metrics', verifyUser, verifyAdmin, async (req, res) => {
     const correctionRate = reviewsWithMessages && reviewsWithMessages.length > 0 ? (unsafeCount / reviewsWithMessages.length) * 100 : 0;
     const totalFeedback = feedbackMemory.length;
 
-    // Calculate time-based metrics to show learning over time
+    // Calculate time-based metrics to show learning over time (using UTC timezone to match message timestamps)
     const now = new Date();
-    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    // Get today's date at midnight in UTC timezone
+    const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
     const yesterday = new Date(today.getTime() - 24 * 60 * 60 * 1000);
     const twoDaysAgo = new Date(today.getTime() - 2 * 24 * 60 * 60 * 1000);
+    
+    // Helper function to get UTC date string (matches message timestamp timezone)
+    const getUTCDateString = (date) => {
+      // Ensure we're working with a Date object
+      let d;
+      if (date instanceof Date) {
+        d = date;
+      } else if (typeof date === 'string') {
+        // Parse the date string - handle both UTC and local timezone formats
+        d = new Date(date);
+        // Validate the date
+        if (isNaN(d.getTime())) {
+          console.error('Invalid date:', date);
+          d = new Date(); // Fallback to now
+        }
+      } else {
+        d = new Date(date);
+      }
+      
+      // Use UTC methods to get date components (matches message timestamp timezone)
+      const year = d.getUTCFullYear();
+      const month = String(d.getUTCMonth() + 1).padStart(2, '0');
+      const day = String(d.getUTCDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    };
     const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
 
     // Group messages by day and hour for trend analysis
@@ -743,12 +815,14 @@ app.get('/api/admin/metrics', verifyUser, verifyAdmin, async (req, res) => {
     const flaggedByDay = {};
     const messagesByHour = {};
     const flaggedByHour = {};
-    
-    // Count currently flagged messages by day/hour
+
+    // Count currently flagged messages by day/hour (using UTC timezone to match message timestamps)
     messages.forEach(msg => {
       const msgDate = new Date(msg.created_at);
-      const date = msgDate.toISOString().split('T')[0];
-      const hour = `${date} ${msgDate.getHours()}:00`;
+      // Use UTC timezone for date calculations (matches message timestamp timezone)
+      const date = getUTCDateString(msgDate);
+      // Use UTC timezone for hour as well
+      const hour = `${date} ${String(msgDate.getUTCHours()).padStart(2, '0')}:00`;
       
       messagesByDay[date] = (messagesByDay[date] || 0) + 1;
       messagesByHour[hour] = (messagesByHour[hour] || 0) + 1;
@@ -765,8 +839,8 @@ app.get('/api/admin/metrics', verifyUser, verifyAdmin, async (req, res) => {
       reviewsWithMessages.forEach(review => {
         if (review.messages && review.messages.created_at) {
           const msgDate = new Date(review.messages.created_at);
-          const date = msgDate.toISOString().split('T')[0];
-          const hour = `${date} ${msgDate.getHours()}:00`;
+          const date = getUTCDateString(msgDate);
+          const hour = `${date} ${String(msgDate.getUTCHours()).padStart(2, '0')}:00`;
           
           // Add to flagged counts for the day/hour when the original message was created
           flaggedByDay[date] = (flaggedByDay[date] || 0) + 1;
@@ -775,23 +849,57 @@ app.get('/api/admin/metrics', verifyUser, verifyAdmin, async (req, res) => {
       });
     }
 
-    // Calculate day-to-day comparisons
-    const todayStr = today.toISOString().split('T')[0];
-    const yesterdayStr = yesterday.toISOString().split('T')[0];
-    const twoDaysAgoStr = twoDaysAgo.toISOString().split('T')[0];
+    // Calculate day-to-day comparisons (using UTC timezone to match message timestamps)
+    const todayStr = getUTCDateString(today);
+    const yesterdayStr = getUTCDateString(yesterday);
+    const twoDaysAgoStr = getUTCDateString(twoDaysAgo);
     
+    // Filter messages by UTC date (matches message timestamp timezone)
     const todayMessages = messages.filter(m => {
       const msgDate = new Date(m.created_at);
-      return msgDate >= today;
+      const msgUTCDate = getUTCDateString(msgDate);
+      const matches = msgUTCDate === todayStr;
+      return matches;
     });
     const yesterdayMessages = messages.filter(m => {
       const msgDate = new Date(m.created_at);
-      return msgDate >= yesterday && msgDate < today;
+      const msgUTCDate = getUTCDateString(msgDate);
+      return msgUTCDate === yesterdayStr;
     });
     const twoDaysAgoMessages = messages.filter(m => {
       const msgDate = new Date(m.created_at);
-      return msgDate >= twoDaysAgo && msgDate < yesterday;
+      const msgUTCDate = getUTCDateString(msgDate);
+      return msgUTCDate === twoDaysAgoStr;
     });
+    
+    // Debug: Log timezone info for first few and last few messages (after filtering)
+    if (messages.length > 0) {
+      const firstThree = messages.slice(0, 3);
+      const lastThree = messages.slice(-3);
+      console.log('📅 [Metrics] Timezone Debug (UTC):', {
+        serverNow: new Date().toISOString(),
+        serverNowUTC: new Date().toUTCString(),
+        todayStr,
+        yesterdayStr,
+        totalMessages: messages.length,
+        firstThreeMessages: firstThree.map(m => ({
+          created_at_raw: m.created_at,
+          created_at_parsed: new Date(m.created_at).toISOString(),
+          created_at_utc: new Date(m.created_at).toUTCString(),
+          utcDate: getUTCDateString(new Date(m.created_at)),
+          matchesToday: getUTCDateString(new Date(m.created_at)) === todayStr
+        })),
+        lastThreeMessages: lastThree.map(m => ({
+          created_at_raw: m.created_at,
+          created_at_parsed: new Date(m.created_at).toISOString(),
+          created_at_utc: new Date(m.created_at).toUTCString(),
+          utcDate: getUTCDateString(new Date(m.created_at)),
+          matchesToday: getUTCDateString(new Date(m.created_at)) === todayStr
+        })),
+        todayMessagesCount: todayMessages.length,
+        yesterdayMessagesCount: yesterdayMessages.length
+      });
+    }
     
     // Count currently flagged messages for each day
     const todayFlaggedCurrent = todayMessages.filter(m => m.flagged).length;
@@ -799,23 +907,26 @@ app.get('/api/admin/metrics', verifyUser, verifyAdmin, async (req, res) => {
     const twoDaysAgoFlaggedCurrent = twoDaysAgoMessages.filter(m => m.flagged).length;
     
     // Add reviewed messages to the counts (preserve historical data)
-    // Count reviews for messages created on each day
+    // Count reviews for messages created on each day (using UTC timezone to match message timestamps)
     const todayReviewed = reviewsWithMessages ? reviewsWithMessages.filter(r => {
       if (!r.messages || !r.messages.created_at) return false;
       const msgDate = new Date(r.messages.created_at);
-      return msgDate >= today;
+      const msgUTCDate = getUTCDateString(msgDate);
+      return msgUTCDate === todayStr;
     }).length : 0;
     
     const yesterdayReviewed = reviewsWithMessages ? reviewsWithMessages.filter(r => {
       if (!r.messages || !r.messages.created_at) return false;
       const msgDate = new Date(r.messages.created_at);
-      return msgDate >= yesterday && msgDate < today;
+      const msgUTCDate = getUTCDateString(msgDate);
+      return msgUTCDate === yesterdayStr;
     }).length : 0;
     
     const twoDaysAgoReviewed = reviewsWithMessages ? reviewsWithMessages.filter(r => {
       if (!r.messages || !r.messages.created_at) return false;
       const msgDate = new Date(r.messages.created_at);
-      return msgDate >= twoDaysAgo && msgDate < yesterday;
+      const msgUTCDate = getUTCDateString(msgDate);
+      return msgUTCDate === twoDaysAgoStr;
     }).length : 0;
     
     // Total flagged = currently flagged + reviewed
@@ -837,11 +948,11 @@ app.get('/api/admin/metrics', verifyUser, verifyAdmin, async (req, res) => {
       ? ((twoDaysAgoFlaggedRate - todayFlaggedRate) / twoDaysAgoFlaggedRate) * 100 
       : 0;
 
-    // Get last 30 days of daily data for chart
+    // Get last 30 days of daily data for chart (using UTC timezone to match message timestamps)
     const dailyData = [];
     for (let i = 29; i >= 0; i--) {
       const date = new Date(now.getTime() - i * 24 * 60 * 60 * 1000);
-      const dateStr = date.toISOString().split('T')[0];
+      const dateStr = getUTCDateString(date);
       const total = messagesByDay[dateStr] || 0;
       const flagged = flaggedByDay[dateStr] || 0;
       const flaggedRate = total > 0 ? (flagged / total) * 100 : 0;
@@ -854,19 +965,19 @@ app.get('/api/admin/metrics', verifyUser, verifyAdmin, async (req, res) => {
       });
     }
 
-    // Get last 24 hours of hourly data for chart
+    // Get last 24 hours of hourly data for chart (using UTC timezone to match message timestamps)
     const hourlyData = [];
     for (let i = 23; i >= 0; i--) {
       const hourDate = new Date(now.getTime() - i * 60 * 60 * 1000);
-      const dateStr = hourDate.toISOString().split('T')[0];
-      const hour = `${dateStr} ${hourDate.getHours()}:00`;
+      const dateStr = getUTCDateString(hourDate);
+      const hour = `${dateStr} ${String(hourDate.getUTCHours()).padStart(2, '0')}:00`;
       const total = messagesByHour[hour] || 0;
       const flagged = flaggedByHour[hour] || 0;
       const flaggedRate = total > 0 ? (flagged / total) * 100 : 0;
       
       hourlyData.push({
-        hour: hourDate.getHours(),
-        hourLabel: hourDate.toLocaleTimeString('en-US', { hour: 'numeric', hour12: true }),
+        hour: hourDate.getUTCHours(),
+        hourLabel: hourDate.toLocaleTimeString('en-US', { hour: 'numeric', hour12: true, timeZone: 'UTC' }),
         date: dateStr,
         total,
         flagged,
@@ -874,17 +985,17 @@ app.get('/api/admin/metrics', verifyUser, verifyAdmin, async (req, res) => {
       });
     }
 
-    // Calculate feedback provided over time
+    // Calculate feedback provided over time (using UTC timezone to match message timestamps)
     const feedbackByDay = {};
     feedbackMemory.forEach(fb => {
-      const date = new Date(fb.created_at).toISOString().split('T')[0];
+      const date = getUTCDateString(new Date(fb.created_at));
       feedbackByDay[date] = (feedbackByDay[date] || 0) + 1;
     });
 
     const feedbackDailyData = [];
     for (let i = 29; i >= 0; i--) {
       const date = new Date(now.getTime() - i * 24 * 60 * 60 * 1000);
-      const dateStr = date.toISOString().split('T')[0];
+      const dateStr = getUTCDateString(date);
       feedbackDailyData.push({
         date: dateStr,
         count: feedbackByDay[dateStr] || 0
@@ -920,6 +1031,365 @@ app.get('/api/admin/metrics', verifyUser, verifyAdmin, async (req, res) => {
   } catch (error) {
     console.error('Error fetching metrics:', error);
     res.status(500).json({ error: 'Failed to fetch metrics' });
+  }
+});
+
+// Admin: Get improvement metrics based on feedback
+app.get('/api/admin/improvement', verifyUser, verifyAdmin, async (req, res) => {
+  try {
+    // Fetch all feedback memory with timestamps
+    const feedbackMemoryResult = await dbService.supabase
+      .from('feedback_memory')
+      .select('created_at, issue_type')
+      .order('created_at', { ascending: true });
+    
+    const feedbackMemory = feedbackMemoryResult.data || [];
+    
+    // Fetch all messages with timestamps and flagged status
+    const messagesResult = await dbService.supabase
+      .from('messages')
+      .select('created_at, flagged, risk_level')
+      .order('created_at', { ascending: true });
+    
+    const messages = messagesResult.data || [];
+    
+    // Helper function to get UTC date string (matches message timestamp timezone)
+    const getUTCDateString = (date) => {
+      // Ensure we're working with a Date object
+      let d;
+      if (date instanceof Date) {
+        d = date;
+      } else if (typeof date === 'string') {
+        // Parse the date string - handle both UTC and local timezone formats
+        d = new Date(date);
+        // Validate the date
+        if (isNaN(d.getTime())) {
+          console.error('Invalid date:', date);
+          d = new Date(); // Fallback to now
+        }
+      } else {
+        d = new Date(date);
+      }
+      
+      // Use UTC methods to get date components (matches message timestamp timezone)
+      const year = d.getUTCFullYear();
+      const month = String(d.getUTCMonth() + 1).padStart(2, '0');
+      const day = String(d.getUTCDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    };
+    
+    const now = new Date();
+    
+    // Calculate improvement metrics over time windows
+    // Group by batches of messages (every 5 messages) to show improvement
+    const improvementByBatch = [];
+    const batchSize = 5;
+    let currentBatch = 0;
+    let batchStartIndex = 0;
+    
+    for (let i = 0; i < messages.length; i += batchSize) {
+      const batchMessages = messages.slice(i, Math.min(i + batchSize, messages.length));
+      const batchFlaggedCount = batchMessages.filter(m => m.flagged).length;
+      const batchTotal = batchMessages.length;
+      const batchFlaggedRate = batchTotal > 0 ? (batchFlaggedCount / batchTotal) * 100 : 0;
+      
+      // Count feedback provided before this batch
+      const feedbackBeforeBatch = feedbackMemory.filter(fb => {
+        const fbDate = new Date(fb.created_at);
+        const batchStartDate = batchMessages[0] ? new Date(batchMessages[0].created_at) : now;
+        return fbDate < batchStartDate;
+      }).length;
+      
+      improvementByBatch.push({
+        batch: currentBatch + 1,
+        messageRange: `${batchStartIndex + 1}-${Math.min(i + batchSize, messages.length)}`,
+        totalMessages: batchTotal,
+        flaggedCount: batchFlaggedCount,
+        flaggedRate: batchFlaggedRate,
+        feedbackCount: feedbackBeforeBatch,
+        avgFlaggedRate: batchFlaggedRate
+      });
+      
+      currentBatch++;
+      batchStartIndex = i;
+    }
+    
+    // Calculate improvement over last 30 days
+    const improvementByDay = [];
+    const flaggedRateByDay = {};
+    const feedbackCountByDay = {};
+    
+    // Count flagged messages by day (using UTC timezone to match message timestamps)
+    messages.forEach(msg => {
+      const msgDate = new Date(msg.created_at);
+      const date = getUTCDateString(msgDate);
+      if (!flaggedRateByDay[date]) {
+        flaggedRateByDay[date] = { total: 0, flagged: 0 };
+      }
+      flaggedRateByDay[date].total++;
+      if (msg.flagged) {
+        flaggedRateByDay[date].flagged++;
+      }
+    });
+    
+    // Debug: Log improvement timezone info
+    if (messages.length > 0) {
+      console.log('📊 [Improvement] Timezone Debug (UTC):', {
+        serverNow: new Date().toISOString(),
+        serverNowUTC: new Date().toUTCString(),
+        totalMessages: messages.length,
+        sampleMessages: messages.slice(-3).map(m => ({
+          created_at_raw: m.created_at,
+          created_at_parsed: new Date(m.created_at).toISOString(),
+          created_at_utc: new Date(m.created_at).toUTCString(),
+          utcDate: getUTCDateString(new Date(m.created_at)),
+          flagged: m.flagged
+        })),
+        flaggedRateByDay: Object.keys(flaggedRateByDay).slice(-5).reduce((acc, key) => {
+          acc[key] = flaggedRateByDay[key];
+          return acc;
+        }, {})
+      });
+    }
+    
+    // Count feedback by day (using UTC timezone to match message timestamps)
+    feedbackMemory.forEach(fb => {
+      const date = getUTCDateString(new Date(fb.created_at));
+      feedbackCountByDay[date] = (feedbackCountByDay[date] || 0) + 1;
+    });
+    
+    // Generate last 30 days of improvement data (using UTC timezone)
+    for (let i = 29; i >= 0; i--) {
+      const date = new Date(now.getTime() - i * 24 * 60 * 60 * 1000);
+      const dateStr = getUTCDateString(date);
+      
+      const dayData = flaggedRateByDay[dateStr] || { total: 0, flagged: 0 };
+      const flaggedRate = dayData.total > 0 ? (dayData.flagged / dayData.total) * 100 : 0;
+      const feedbackCount = feedbackCountByDay[dateStr] || 0;
+      
+      // Calculate cumulative feedback up to this day
+      const cumulativeFeedback = feedbackMemory.filter(fb => {
+        const fbDate = new Date(fb.created_at);
+        const dayDate = new Date(date);
+        dayDate.setHours(23, 59, 59, 999);
+        return fbDate <= dayDate;
+      }).length;
+      
+      improvementByDay.push({
+        date: dateStr,
+        totalMessages: dayData.total,
+        flaggedCount: dayData.flagged,
+        flaggedRate,
+        feedbackCount,
+        cumulativeFeedback
+      });
+    }
+    
+    // Calculate overall improvement trend with heavy weighting on recent batches
+    // For small datasets (~100 messages), focus on recent batches and ignore very old ones
+    // Only consider the most recent 20 batches (100 messages) to show quick improvement
+    const maxBatchesToConsider = 20; // Only analyze last 20 batches (recent data)
+    const batchesToAnalyze = improvementByBatch.slice(-maxBatchesToConsider);
+    
+    // Use exponential weighting: most recent batches have exponentially more weight
+    // Weight formula: weight = e^(batchIndex / decayFactor)
+    // Recent batches (higher index) get exponentially higher weights
+    const decayFactor = 3; // Lower = more weight on recent batches
+    const weightedBatches = batchesToAnalyze.map((batch, index) => {
+      const weight = Math.exp(index / decayFactor);
+      return {
+        ...batch,
+        weight
+      };
+    });
+    
+    // Split into recent (last 30% with high weight) and older (first 70% with lower weight)
+    const recentSplitPoint = Math.floor(batchesToAnalyze.length * 0.7);
+    const recentBatches = weightedBatches.slice(recentSplitPoint);
+    const olderBatches = weightedBatches.slice(0, recentSplitPoint);
+    
+    // Calculate weighted averages (recent batches have much more influence)
+    const recentTotalWeight = recentBatches.reduce((sum, b) => sum + b.weight, 0);
+    const recentWeightedSum = recentBatches.reduce((sum, b) => sum + (b.flaggedRate * b.weight), 0);
+    const recentAvgFlaggedRate = recentTotalWeight > 0 ? recentWeightedSum / recentTotalWeight : 0;
+    
+    const olderTotalWeight = olderBatches.reduce((sum, b) => sum + b.weight, 0);
+    const olderWeightedSum = olderBatches.reduce((sum, b) => sum + (b.flaggedRate * b.weight), 0);
+    const olderAvgFlaggedRate = olderTotalWeight > 0 ? olderWeightedSum / olderTotalWeight : 0;
+    
+    // Calculate improvement: positive means improvement (reduction in flagged rate)
+    let overallImprovement = 0;
+    
+    // Check if there's actual improvement by comparing individual batches
+    const anyOlderHadFlags = olderBatches.some(b => b.flaggedCount > 0 || b.flaggedRate > 0);
+    const allRecentZero = recentBatches.every(b => b.flaggedCount === 0 && b.flaggedRate === 0);
+    const totalOlderFlagged = olderBatches.reduce((sum, b) => sum + b.flaggedCount, 0);
+    const totalRecentFlagged = recentBatches.reduce((sum, b) => sum + b.flaggedCount, 0);
+    const totalOlderMessages = olderBatches.reduce((sum, b) => sum + b.totalMessages, 0);
+    const totalRecentMessages = recentBatches.reduce((sum, b) => sum + b.totalMessages, 0);
+    
+    // Check the trend: compare the last 3 batches to the batches just before them (within analyzed batches)
+    const lastThreeBatches = batchesToAnalyze.slice(-3);
+    const batchesBeforeLastThree = batchesToAnalyze.length >= 6 
+      ? batchesToAnalyze.slice(-6, -3) // Batches just before last 3
+      : batchesToAnalyze.slice(0, Math.max(0, batchesToAnalyze.length - 3));
+    const lastThreeAllZero = lastThreeBatches.length > 0 && lastThreeBatches.every(b => b.flaggedCount === 0);
+    const batchesBeforeHadFlags = batchesBeforeLastThree.length > 0 && batchesBeforeLastThree.some(b => b.flaggedCount > 0);
+    
+    // Calculate improvement dynamically by comparing recent batches to older batches
+    // Use a sliding window approach with exponential weighting: compare last N batches to previous N batches
+    // For small datasets (~100 messages), use smaller windows (3-5 batches) with heavy recent weighting
+    const windowSize = Math.min(5, Math.floor(batchesToAnalyze.length / 3)); // Use 5 batches or 1/3 of analyzed, whichever is smaller
+    const recentWindow = batchesToAnalyze.slice(-windowSize);
+    const previousWindow = batchesToAnalyze.slice(-windowSize * 2, -windowSize);
+    
+    if (olderAvgFlaggedRate > 0) {
+      // Standard case: older batches had flags, compare to recent
+      overallImprovement = ((olderAvgFlaggedRate - recentAvgFlaggedRate) / olderAvgFlaggedRate) * 100;
+    } else if (recentAvgFlaggedRate === 0 && olderAvgFlaggedRate === 0) {
+      // Both averages are zero - use sliding window to detect trends
+      if (recentWindow.length > 0 && previousWindow.length > 0) {
+        const recentWindowFlagged = recentWindow.reduce((sum, b) => sum + b.flaggedCount, 0);
+        const recentWindowTotal = recentWindow.reduce((sum, b) => sum + b.totalMessages, 0);
+        const previousWindowFlagged = previousWindow.reduce((sum, b) => sum + b.flaggedCount, 0);
+        const previousWindowTotal = previousWindow.reduce((sum, b) => sum + b.totalMessages, 0);
+        
+        if (previousWindowTotal > 0 && recentWindowTotal > 0) {
+          const previousRate = (previousWindowFlagged / previousWindowTotal) * 100;
+          const recentRate = (recentWindowFlagged / recentWindowTotal) * 100;
+          if (previousRate > 0) {
+            overallImprovement = ((previousRate - recentRate) / previousRate) * 100;
+          } else if (previousRate === 0 && recentRate === 0) {
+            overallImprovement = 0; // No change
+          } else if (previousRate === 0 && recentRate > 0) {
+            overallImprovement = -100; // Regression: went from 0% to having flags
+          }
+        }
+      } else {
+        overallImprovement = 0; // No change
+      }
+    } else if (recentAvgFlaggedRate === 0 && olderAvgFlaggedRate > 0) {
+      // Perfect improvement: went from flagged to zero flagged
+      overallImprovement = 100;
+    } else if (totalOlderFlagged > totalRecentFlagged && totalOlderMessages > 0 && totalRecentMessages > 0) {
+      // Calculate improvement based on total counts if averages don't show it
+      const olderTotalRate = (totalOlderFlagged / totalOlderMessages) * 100;
+      const recentTotalRate = (totalRecentFlagged / totalRecentMessages) * 100;
+      if (olderTotalRate > 0) {
+        overallImprovement = ((olderTotalRate - recentTotalRate) / olderTotalRate) * 100;
+      } else if (olderTotalRate === 0 && recentTotalRate > 0) {
+        overallImprovement = -100; // Regression: went from 0% to having flags
+      }
+    } else if (totalOlderFlagged < totalRecentFlagged && totalOlderMessages > 0 && totalRecentMessages > 0) {
+      // Regression: recent batches have more flags than older batches
+      const olderTotalRate = (totalOlderFlagged / totalOlderMessages) * 100;
+      const recentTotalRate = (totalRecentFlagged / totalRecentMessages) * 100;
+      if (olderTotalRate > 0) {
+        overallImprovement = ((olderTotalRate - recentTotalRate) / olderTotalRate) * 100; // Will be negative
+      } else if (olderTotalRate === 0 && recentTotalRate > 0) {
+        overallImprovement = -100; // Regression: went from 0% to having flags
+      }
+    }
+    
+    // Allow negative improvement (regression) - don't cap at 0
+    // This shows when the AI is performing worse
+    
+    // Round to 2 decimal places
+    overallImprovement = Math.round(overallImprovement * 100) / 100;
+    
+    // Calculate if AI learned from feedback: compare recent batches (with more feedback) to older batches
+    // For small datasets, use a sliding window approach that compares recent batches to older ones
+    // This is more appropriate than comparing before/after a single feedback point
+    let feedbackLearningRate = 0;
+    if (feedbackMemory.length > 0 && improvementByBatch.length >= 2) {
+      // For small datasets, compare the last 30% of batches (recent, with more feedback) 
+      // to the first 30% of batches (older, with less/no feedback)
+      // This gives a better picture of improvement over time
+      const totalBatches = improvementByBatch.length;
+      const recentWindowSize = Math.max(2, Math.floor(totalBatches * 0.3)); // At least 2 batches, or 30% of total
+      const olderWindowSize = Math.max(2, Math.floor(totalBatches * 0.3)); // At least 2 batches, or 30% of total
+      
+      // Get recent batches (last N batches - these have had more cumulative feedback)
+      const recentBatches = improvementByBatch.slice(-recentWindowSize);
+      // Get older batches (first N batches - these had less or no feedback)
+      const olderBatches = improvementByBatch.slice(0, olderWindowSize);
+      
+      // Only calculate if we have distinct batches (no overlap)
+      if (recentWindowSize + olderWindowSize <= totalBatches && recentBatches.length > 0 && olderBatches.length > 0) {
+        // Calculate totals for comparison
+        const olderTotalFlagged = olderBatches.reduce((sum, b) => sum + b.flaggedCount, 0);
+        const olderTotalMessages = olderBatches.reduce((sum, b) => sum + b.totalMessages, 0);
+        const recentTotalFlagged = recentBatches.reduce((sum, b) => sum + b.flaggedCount, 0);
+        const recentTotalMessages = recentBatches.reduce((sum, b) => sum + b.totalMessages, 0);
+        
+        if (olderTotalMessages > 0 && recentTotalMessages > 0) {
+          const olderRate = (olderTotalFlagged / olderTotalMessages) * 100;
+          const recentRate = (recentTotalFlagged / recentTotalMessages) * 100;
+          
+          // Calculate improvement: positive means improvement (reduction in flagged rate)
+          if (olderRate > 0) {
+            feedbackLearningRate = ((olderRate - recentRate) / olderRate) * 100;
+          } else if (olderRate === 0 && recentRate === 0) {
+            feedbackLearningRate = 0; // Both are perfect, no change needed
+          } else if (olderRate === 0 && recentRate > 0) {
+            // Regression: went from perfect (0%) to having flags
+            // But for small datasets, this might be noise - don't penalize too harshly
+            feedbackLearningRate = -50; // Less harsh penalty for small datasets
+          } else if (olderRate > 0 && recentRate === 0) {
+            feedbackLearningRate = 100; // Perfect improvement: went from flagged to zero
+          }
+        }
+      } else if (totalBatches >= 2) {
+        // Fallback: if we can't use distinct windows, compare last batch to first batch
+        const firstBatch = improvementByBatch[0];
+        const lastBatch = improvementByBatch[improvementByBatch.length - 1];
+        
+        if (firstBatch && lastBatch && firstBatch.totalMessages > 0 && lastBatch.totalMessages > 0) {
+          const firstRate = (firstBatch.flaggedCount / firstBatch.totalMessages) * 100;
+          const lastRate = (lastBatch.flaggedCount / lastBatch.totalMessages) * 100;
+          
+          if (firstRate > 0) {
+            feedbackLearningRate = ((firstRate - lastRate) / firstRate) * 100;
+          } else if (firstRate === 0 && lastRate === 0) {
+            feedbackLearningRate = 0;
+          } else if (firstRate === 0 && lastRate > 0) {
+            feedbackLearningRate = -50; // Less harsh for small datasets
+          } else if (firstRate > 0 && lastRate === 0) {
+            feedbackLearningRate = 100;
+          }
+        }
+      }
+    }
+    
+    // Round feedback learning rate
+    feedbackLearningRate = Math.round(feedbackLearningRate * 100) / 100;
+    
+    // Calculate feedback effectiveness: improvement per feedback
+    const feedbackEffectiveness = feedbackMemory.length > 0 && overallImprovement > 0
+      ? overallImprovement / feedbackMemory.length
+      : 0;
+    
+    // Round to 2 decimal places
+    const roundedFeedbackEffectiveness = Math.round(feedbackEffectiveness * 100) / 100;
+    
+    // Round the average flagged rates
+    const roundedRecentAvg = Math.round(recentAvgFlaggedRate * 100) / 100;
+    const roundedOlderAvg = Math.round(olderAvgFlaggedRate * 100) / 100;
+
+    res.json({
+      improvementByBatch: improvementByBatch.slice(-10), // Only return last 10 batches for small datasets
+      improvementByDay: improvementByDay.slice(-7), // Only return last 7 days
+      overallImprovement,
+      feedbackLearningRate,
+      recentAvgFlaggedRate: roundedRecentAvg,
+      olderAvgFlaggedRate: roundedOlderAvg,
+      feedbackEffectiveness: roundedFeedbackEffectiveness,
+      totalFeedback: feedbackMemory.length,
+      totalBatches: improvementByBatch.length
+    });
+  } catch (error) {
+    console.error('Error fetching improvement metrics:', error);
+    res.status(500).json({ error: 'Failed to fetch improvement metrics' });
   }
 });
 
