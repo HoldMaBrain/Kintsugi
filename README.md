@@ -2,144 +2,96 @@
 
 > The art of repairing broken pottery with gold
 
-Kintsugi is a safety-monitored AI mental health support application that uses human-in-the-loop anomaly detection to ensure safe and empathetic interactions.
+Kintsugi is a safety-monitored AI mental health support application that uses human-in-the-loop anomaly detection to ensure safe and empathetic interactions between users and an AI chatbot.
 
-## Features
+## What is Kintsugi?
 
-- 🤖 **Empathetic AI Chat Interface** - Powered by Google Gemini 2.5 Flash
-- 🛡️ **Safety Monitoring Pipeline** - Multi-layer safety detection system
-- 👥 **Human Reviewer Dashboard** - Admin interface for reviewing flagged responses
-- 🔄 **Feedback Loop** - Continuous improvement through human feedback
-- 🎨 **Beautiful UI** - Kintsugi-themed design with gold accents
+Kintsugi is a demonstration application that combines AI-powered mental health support with rigorous safety monitoring. The system uses a dual-layer safety approach: automated rule-based detection and AI-powered safety evaluation, with human reviewers providing oversight for all high-risk interactions.
 
-## Tech Stack
+The name "Kintsugi" comes from the Japanese art of repairing broken pottery with gold, symbolizing that healing and improvement come through acknowledging and addressing vulnerabilities—both in the AI system and in the users it serves.
+
+## How It Works
+
+### Core Workflow
+
+1. **User Interaction**: Users sign in via Google OAuth and engage in conversations with an AI chatbot powered by Google Gemini.
+
+2. **Message Processing**: When a user sends a message:
+   - The message is saved to the database
+   - Conversation history is retrieved
+   - The AI generates a response using Gemini 2.5 Flash
+
+3. **Safety Evaluation**: Every AI response undergoes a two-stage safety check:
+   - **Rule-Based Detection**: Pattern matching for prompt injection attempts, crisis keywords, and safety violations
+   - **AI Safety Critic**: A separate Gemini model evaluates the response for emotional invalidation, over-advice, tone mismatch, and other safety concerns
+
+4. **Risk Assessment**: The system calculates a risk score combining:
+   - Rule-based triggers (prompt injection, crisis keywords, etc.)
+   - AI critic assessment (risk level: info, low, medium, high)
+   - Role-switching detection (critical indicator of successful prompt injection)
+
+5. **Flagging Decision**: Responses with high risk scores are flagged and held for human review before delivery.
+
+6. **Human Review**: Admin reviewers can:
+   - Approve flagged responses as safe
+   - Mark responses as unsafe and provide corrections
+   - Add feedback that improves future AI responses
+
+7. **Feedback Loop**: Human corrections are stored in a feedback memory system that influences future AI responses, creating a continuous improvement cycle.
+
+### Safety Pipeline Architecture
+
+```
+User Message
+    ↓
+Safety Pre-Evaluation (Rule-Based)
+    ↓
+AI Response Generation (Gemini)
+    ↓
+Safety Post-Evaluation (Rule-Based + AI Critic)
+    ↓
+Risk Score Calculation
+    ↓
+Flagging Decision
+    ↓
+[If Flagged] → Human Review Queue
+    ↓
+[If Approved] → Delivery to User
+[If Unsafe] → Correction + Feedback Storage
+```
+
+## Technology Stack
 
 ### Frontend
-- React 18 with Vite
-- Tailwind CSS
-- shadcn/ui components
-- Framer Motion for animations
-- Supabase Auth (Google OAuth)
+
+- **React 18**: Modern React with hooks and functional components
+- **Vite**: Fast build tool and development server
+- **Tailwind CSS**: Utility-first CSS framework for styling
+- **shadcn/ui**: Accessible component library built on Radix UI
+- **Framer Motion**: Animation library for smooth UI transitions
+- **Supabase Auth**: Authentication via Google OAuth integration
 
 ### Backend
-- Node.js with Express
-- Google Gemini 2.5 Flash (Chatbot + Safety Critic)
-- Supabase PostgreSQL
-- REST API
 
-## Setup Instructions
+- **Node.js**: JavaScript runtime environment
+- **Express**: Web framework for REST API endpoints
+- **Google Gemini 2.5 Flash**: 
+  - Primary chatbot model for generating responses
+  - Separate critic model for safety evaluation
+- **Supabase**: 
+  - PostgreSQL database for data storage
+  - Authentication service for user management
+  - Real-time capabilities (not currently used)
 
-### Prerequisites
-- Node.js 18+ installed
-- Supabase account and project
-- Google Cloud account with Gemini API access
+### Database Schema
 
-### 1. Install Dependencies
+The application uses five main tables:
 
-```bash
-npm run install:all
-```
-
-### 2. Configure Backend
-
-1. Copy `backend/.env.example` to `backend/.env`
-2. Fill in your configuration:
-
-```env
-SUPABASE_URL=your_supabase_url
-SUPABASE_SERVICE_ROLE_KEY=your_supabase_service_role_key
-GEMINI_CHATBOT_API_KEY=your_gemini_chatbot_api_key
-GEMINI_CRITIC_API_KEY=your_gemini_critic_api_key
-PORT=3001
-ADMIN_EMAILS=admin@example.com
-```
-
-### 3. Configure Frontend
-
-1. Copy `frontend/.env.example` to `frontend/.env`
-2. Fill in your Supabase credentials:
-
-```env
-VITE_SUPABASE_URL=your_supabase_url
-VITE_SUPABASE_ANON_KEY=your_supabase_anon_key
-```
-
-### 4. Set Up Supabase Database
-
-Run the following SQL in your Supabase SQL editor:
-
-```sql
--- Users table
-CREATE TABLE users (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  email TEXT UNIQUE NOT NULL,
-  role TEXT DEFAULT 'user' CHECK (role IN ('user', 'admin')),
-  created_at TIMESTAMP DEFAULT NOW()
-);
-
--- Conversations table
-CREATE TABLE conversations (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id UUID REFERENCES users(id) ON DELETE CASCADE,
-  created_at TIMESTAMP DEFAULT NOW(),
-  delete_after TIMESTAMP
-);
-
--- Messages table
-CREATE TABLE messages (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  conversation_id UUID REFERENCES conversations(id) ON DELETE CASCADE,
-  sender TEXT CHECK (sender IN ('user', 'ai')),
-  content TEXT NOT NULL,
-  created_at TIMESTAMP DEFAULT NOW(),
-  risk_level TEXT DEFAULT 'info' CHECK (risk_level IN ('info', 'low', 'medium', 'high')),
-  flagged BOOLEAN DEFAULT FALSE,
-  finalized BOOLEAN DEFAULT FALSE
-);
-
--- Reviews table
-CREATE TABLE reviews (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  message_id UUID REFERENCES messages(id) ON DELETE CASCADE,
-  admin_id UUID REFERENCES users(id),
-  verdict TEXT CHECK (verdict IN ('safe', 'unsafe')),
-  feedback TEXT,
-  corrected_response TEXT,
-  created_at TIMESTAMP DEFAULT NOW()
-);
-
--- Feedback memory table
-CREATE TABLE feedback_memory (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  issue_type TEXT,
-  pattern TEXT,
-  human_feedback TEXT,
-  created_at TIMESTAMP DEFAULT NOW()
-);
-
--- Enable Row Level Security (optional, adjust as needed)
-ALTER TABLE users ENABLE ROW LEVEL SECURITY;
-ALTER TABLE conversations ENABLE ROW LEVEL SECURITY;
-ALTER TABLE messages ENABLE ROW LEVEL SECURITY;
-ALTER TABLE reviews ENABLE ROW LEVEL SECURITY;
-ALTER TABLE feedback_memory ENABLE ROW LEVEL SECURITY;
-```
-
-### 5. Configure Supabase Auth
-
-1. Go to your Supabase project dashboard
-2. Navigate to Authentication > Providers
-3. Enable Google OAuth
-4. Add your Google OAuth credentials
-5. Add authorized redirect URLs: `http://localhost:3000`
-
-### 6. Run the Application
-
-```bash
-npm run dev
-```
-
-This will start both backend (port 3001) and frontend (port 3000) servers.
+- **users**: Stores user accounts with email and role (user/admin)
+- **conversations**: Tracks conversation sessions with auto-deletion after 3 days
+- **messages**: Stores all user and AI messages with risk levels and flagged status
+- **reviews**: Records admin reviews of flagged messages with verdicts and corrections
+- **feedback_memory**: Stores human feedback patterns for AI improvement
 
 ## Project Structure
 
@@ -147,62 +99,185 @@ This will start both backend (port 3001) and frontend (port 3000) servers.
 kintsugi/
 ├── backend/
 │   ├── config/
-│   │   └── safetyRules.js      # Safety rule configuration
+│   │   └── safetyRules.js          # Safety rule patterns and weights
 │   ├── services/
-│   │   ├── geminiService.js     # Gemini AI integration
-│   │   ├── safetyService.js   # Safety evaluation logic
-│   │   └── dbService.js        # Database operations
-│   ├── server.js               # Express server
+│   │   ├── geminiService.js        # Gemini AI integration and prompts
+│   │   ├── safetyService.js        # Safety evaluation orchestration
+│   │   └── dbService.js            # Database operations abstraction
+│   ├── server.js                   # Express server and API routes
 │   └── package.json
 ├── frontend/
 │   ├── src/
 │   │   ├── components/
-│   │   │   └── ui/             # shadcn/ui components
+│   │   │   └── ui/                 # Reusable UI components (shadcn/ui)
 │   │   ├── contexts/
-│   │   │   └── AuthContext.jsx # Authentication context
+│   │   │   └── AuthContext.jsx     # Authentication state management
 │   │   ├── lib/
-│   │   │   ├── api.js          # API client
-│   │   │   ├── supabase.js     # Supabase client
-│   │   │   └── utils.js        # Utility functions
+│   │   │   ├── api.js              # API client functions
+│   │   │   ├── supabase.js         # Supabase client initialization
+│   │   │   └── utils.js            # Utility functions
 │   │   ├── pages/
-│   │   │   ├── Landing.jsx     # Landing page
-│   │   │   ├── Chat.jsx        # Chat interface
-│   │   │   └── AdminDashboard.jsx # Admin dashboard
-│   │   ├── App.jsx             # Main app component
-│   │   └── main.jsx            # Entry point
+│   │   │   ├── Landing.jsx         # Public landing page
+│   │   │   ├── Chat.jsx            # User chat interface
+│   │   │   └── AdminDashboard.jsx  # Admin review dashboard
+│   │   ├── App.jsx                 # Main app component with routing
+│   │   └── main.jsx                # Application entry point
 │   └── package.json
-└── package.json
+├── database/
+│   ├── schema.sql                  # Initial database schema
+│   ├── migration_add_review_columns.sql
+│   └── migration_add_feedback_columns.sql
+├── README.md
+├── API.md                          # API endpoint documentation
+└── package.json                    # Root package.json for workspace scripts
 ```
 
-## Usage
+## Key Components
 
-1. **As a User:**
-   - Visit `http://localhost:3000`
-   - Sign in with Google
-   - Start chatting with the AI
-   - Conversations are monitored for safety
+### Backend Services
 
-2. **As an Admin:**
-   - Sign in with an email listed in `ADMIN_EMAILS`
-   - Access the Admin Dashboard
-   - Review flagged messages
-   - Approve or correct AI responses
+**GeminiService** (`backend/services/geminiService.js`)
+- Manages connections to Google Gemini API
+- Handles chatbot response generation with conversation context
+- Runs safety critic evaluation on user messages and AI responses
+- Implements prompt engineering for consistent AI behavior
+
+**SafetyService** (`backend/services/safetyService.js`)
+- Orchestrates the safety evaluation pipeline
+- Combines rule-based and AI critic results
+- Calculates risk scores and determines flagging decisions
+- Handles prompt injection detection and role-switching detection
+
+**DatabaseService** (`backend/services/dbService.js`)
+- Abstracts all database operations
+- Handles user management and authentication
+- Manages conversations and messages
+- Provides feedback memory retrieval
+
+### Frontend Pages
+
+**Chat** (`frontend/src/pages/Chat.jsx`)
+- Main user interface for conversations
+- Real-time message display
+- Handles message sending and receiving
+- Shows pending status for flagged messages
+
+**AdminDashboard** (`frontend/src/pages/AdminDashboard.jsx`)
+- Review interface for flagged messages
+- Metrics and analytics dashboard
+- Feedback management
+- Improvement tracking over time
 
 ## Safety Features
 
-- **Rule-Based Detection**: Keyword and pattern matching
-- **AI Safety Critic**: Gemini-powered safety evaluation
-- **Risk Scoring**: Multi-factor risk assessment
-- **Human Review**: Mandatory review for high-risk responses
-- **Feedback Memory**: Learning from human corrections
+### Rule-Based Detection
+
+The system uses pattern matching to detect:
+- **Prompt Injection Attempts**: Patterns like "ignore previous instructions", "respond as if", "change your tone"
+- **Crisis Keywords**: Terms indicating immediate danger (suicide, self-harm, etc.)
+- **Role-Switching**: Detection of AI responses that change roles mid-conversation
+- **Advice Patterns**: Imperative language that may constitute medical advice
+
+### AI Safety Critic
+
+A separate Gemini model evaluates responses for:
+- Emotional invalidation
+- Over-advice or role violations
+- Tone mismatch with user's emotional state
+- Crisis handling failures
+- Medical advice given inappropriately
+- Overconfidence in responses
+
+### Risk Scoring System
+
+Risk levels are calculated as:
+- **Info**: No safety concerns (score 0)
+- **Low**: Minor concerns (score 1-3)
+- **Medium**: Moderate concerns (score 4-7)
+- **High**: Serious concerns requiring review (score 8+)
+
+All high-risk responses are automatically flagged for human review.
+
+### Prompt Injection Protection
+
+The system detects and flags:
+- Direct commands to override instructions
+- Role-switching requests
+- Response style manipulation attempts
+- Contradictory instructions
+- Any attempt to change AI behavior
+
+All prompt injection attempts are flagged for review, regardless of whether the AI resists them.
+
+## Setup Instructions
+
+### Prerequisites
+
+- Node.js 18 or higher
+- Supabase account and project
+- Google Cloud account with Gemini API access
+
+### Installation
+
+1. **Clone the repository**
+
+2. **Install dependencies**
+   ```bash
+   npm run install:all
+   ```
+
+3. **Configure backend environment**
+   - Copy `backend/.env.example` to `backend/.env`
+   - Fill in your Supabase URL and service role key
+   - Add your Gemini API keys (separate keys for chatbot and critic)
+   - Set admin email addresses (comma-separated)
+
+4. **Configure frontend environment**
+   - Copy `frontend/.env.example` to `frontend/.env`
+   - Add your Supabase URL and anonymous key
+
+5. **Set up database**
+   - Run `database/schema.sql` in your Supabase SQL editor
+   - Run migration files if needed
+
+6. **Configure Supabase Auth**
+   - Enable Google OAuth in Supabase dashboard
+   - Add OAuth credentials
+   - Set redirect URL to `http://localhost:3000`
+
+7. **Run the application**
+   ```bash
+   npm run dev
+   ```
+   - Backend runs on `http://localhost:3001`
+   - Frontend runs on `http://localhost:3000`
+
+## Usage
+
+### As a User
+
+1. Visit the application URL
+2. Sign in with Google OAuth
+3. Start a conversation with the AI
+4. Messages are monitored for safety
+5. Flagged messages require admin approval before delivery
+
+### As an Admin
+
+1. Sign in with an email listed in `ADMIN_EMAILS`
+2. Access the Admin Dashboard
+3. Review flagged messages in the queue
+4. Approve safe messages or provide corrections for unsafe ones
+5. Monitor metrics and improvement trends
 
 ## Important Notes
 
 - This is a **demo/prototype** application
-- **Not a replacement** for professional therapy
-- Conversations auto-delete after 3 days
-- All high-risk responses require human review
+- **Not a replacement** for professional therapy or mental health services
+- Conversations automatically delete after 3 days
+- All high-risk responses require human review before delivery
+- Prompt injection attempts are always flagged for review
 
 ## License
 
-MIT
+MIT License

@@ -34,9 +34,8 @@ export class SafetyService {
     // Check for role-switching (critical indicator of successful injection)
     const roleSwitchingDetected = ruleResult.triggers.includes('role_switching_detected');
     
-    // CRITICAL: ANY prompt injection attempt must be flagged for human review
-    // This includes attempts to manipulate response style, tone, or behavior
-    // Even if the AI resisted, the attempt itself is a security concern
+    // Flag all prompt injection attempts for human review
+    // Includes attempts to manipulate response style, tone, or behavior
     if (promptInjectionDetected) {
       // Always add significant score for any prompt injection attempt
       totalScore += 8; // High penalty for any injection attempt
@@ -81,8 +80,7 @@ export class SafetyService {
       riskLevel = 'high';
     }
 
-    // Override: if ANY prompt injection attempt detected OR role-switching detected, always flag as high
-    // This ensures all injection attempts are flagged for human review, regardless of success
+    // Override: flag all prompt injection attempts as high risk
     if (promptInjectionDetected || roleSwitchingDetected) {
       riskLevel = 'high';
       console.log('[SafetyService] Overriding risk level to HIGH due to prompt injection attempt or role-switching');

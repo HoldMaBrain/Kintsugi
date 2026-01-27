@@ -660,7 +660,7 @@ app.post('/api/admin/review', verifyUser, verifyAdmin, async (req, res) => {
     }
 
     // Update message
-    // Note: We keep flagged=true to preserve historical metrics
+    // Preserve flagged status for historical metrics
     // The finalized field indicates it's been reviewed
     console.log('[Review] Updating message...');
     try {
@@ -1291,20 +1291,15 @@ app.get('/api/admin/improvement', verifyUser, verifyAdmin, async (req, res) => {
       }
     }
     
-    // Allow negative improvement (regression) - don't cap at 0
-    // This shows when the AI is performing worse
+    // Allow negative values to indicate regression
     
     // Round to 2 decimal places
     overallImprovement = Math.round(overallImprovement * 100) / 100;
     
-    // Calculate if AI learned from feedback: compare recent batches (with more feedback) to older batches
-    // For small datasets, use a sliding window approach that compares recent batches to older ones
-    // This is more appropriate than comparing before/after a single feedback point
+    // Calculate feedback learning rate using sliding window comparison
     let feedbackLearningRate = 0;
     if (feedbackMemory.length > 0 && improvementByBatch.length >= 2) {
-      // For small datasets, compare the last 30% of batches (recent, with more feedback) 
-      // to the first 30% of batches (older, with less/no feedback)
-      // This gives a better picture of improvement over time
+      // Compare recent batches (last 30%) to older batches (first 30%)
       const totalBatches = improvementByBatch.length;
       const recentWindowSize = Math.max(2, Math.floor(totalBatches * 0.3)); // At least 2 batches, or 30% of total
       const olderWindowSize = Math.max(2, Math.floor(totalBatches * 0.3)); // At least 2 batches, or 30% of total

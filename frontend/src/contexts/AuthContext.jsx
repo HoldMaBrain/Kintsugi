@@ -110,7 +110,7 @@ export function AuthProvider({ children }) {
     } catch (error) {
       console.warn('Error loading user from backend:', error);
       // If backend fails, user is already set from session in initAuth
-      // This is fine - backend will create/update user on first API call
+      // User creation handled by backend on first API call
     }
   }
 

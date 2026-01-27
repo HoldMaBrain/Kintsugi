@@ -6,7 +6,6 @@ import Chat from './pages/Chat';
 import AdminDashboard from './pages/AdminDashboard';
 
 function ProtectedRoute({ children }) {
-  // This will be handled by individual pages
   return children;
 }
 
