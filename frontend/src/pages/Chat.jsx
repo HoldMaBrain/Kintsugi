@@ -6,7 +6,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Card } from '@/components/ui/card';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
-import { Loader2, Send, Trash2, LogOut, User, Heart, Flower2, Leaf, Sparkles } from 'lucide-react';
+import { Loader2, Send, Trash2, LogOut, User, Heart, Flower2, Leaf, Sparkles, Eye, EyeOff, AlertTriangle } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { createConversation, sendMessage, getConversation, deleteConversation, getConversations } from '@/lib/api';
 import { useToast } from '@/components/ui/use-toast';
@@ -21,8 +21,10 @@ export default function Chat() {
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
   const [pendingMessage, setPendingMessage] = useState(null);
+  const [unblurredMessages, setUnblurredMessages] = useState(new Set()); // Track which messages user has unblurred
   const messagesEndRef = useRef(null);
   const textareaRef = useRef(null);
+  const initializingRef = useRef(false); // Prevent multiple simultaneous initializations
 
   useEffect(() => {
     // Wait for auth to finish loading before checking user
@@ -30,10 +32,18 @@ export default function Chat() {
       navigate('/');
       return;
     }
-    if (user) {
-      initializeConversation();
+    // Only initialize once when user is available and not already initializing
+    // Use a ref to track if we've already initialized for this user
+    if (user && !initializingRef.current) {
+      initializingRef.current = true;
+      initializeConversation().finally(() => {
+        // Reset after a short delay to allow re-initialization if needed
+        setTimeout(() => {
+          initializingRef.current = false;
+        }, 1000);
+      });
     }
-  }, [user, authLoading, navigate]);
+  }, [user, authLoading, navigate]); // Only depend on user/authLoading, not conversationId
 
   useEffect(() => {
     scrollToBottom();
@@ -51,49 +61,55 @@ export default function Chat() {
       if (conversations && conversations.length > 0) {
         // Load the most recent conversation
         const mostRecent = conversations[0]; // Already sorted by created_at desc
-        console.log('📋 [Chat] Most recent conversation:', {
-          id: mostRecent.id,
-          messageCount: mostRecent.messages?.length || 0,
-          hasMessages: !!mostRecent.messages,
-          messages: mostRecent.messages
-        });
         
-        setConversationId(mostRecent.id);
-        
-        // Load messages from the conversation
-        if (mostRecent.messages && mostRecent.messages.length > 0) {
-          // Sort messages by created_at to ensure correct order
-          const sortedMessages = [...mostRecent.messages].sort((a, b) => 
-            new Date(a.created_at) - new Date(b.created_at)
-          );
-          console.log('📋 [Chat] Setting messages:', sortedMessages.length);
-          setMessages(sortedMessages);
-        } else {
-          // If messages aren't loaded, fetch the full conversation
-          console.log('📋 [Chat] No messages in response, fetching full conversation...');
-          try {
-            const { conversation } = await getConversation(mostRecent.id);
-            if (conversation.messages && conversation.messages.length > 0) {
-              const sortedMessages = [...conversation.messages].sort((a, b) => 
-                new Date(a.created_at) - new Date(b.created_at)
-              );
-              console.log('📋 [Chat] Loaded messages from full fetch:', sortedMessages.length);
-              setMessages(sortedMessages);
-            } else {
+        // Only update if conversation ID changed to prevent unnecessary re-renders
+        if (mostRecent.id !== conversationId) {
+          setConversationId(mostRecent.id);
+          
+          // Load messages from the conversation
+          if (mostRecent.messages && mostRecent.messages.length > 0) {
+            // Sort messages by created_at to ensure correct order
+            const sortedMessages = [...mostRecent.messages].sort((a, b) => 
+              new Date(a.created_at) - new Date(b.created_at)
+            );
+            setMessages(sortedMessages);
+            
+            // Initialize unblurred state
+            setUnblurredMessages(new Set());
+            
+            console.log(`✅ Loaded existing conversation with ${sortedMessages.length} messages`);
+          } else {
+            // If messages aren't loaded, fetch the full conversation
+            try {
+              const { conversation } = await getConversation(mostRecent.id);
+              if (conversation.messages && conversation.messages.length > 0) {
+                const sortedMessages = [...conversation.messages].sort((a, b) => 
+                  new Date(a.created_at) - new Date(b.created_at)
+                );
+                setMessages(sortedMessages);
+                
+                // Initialize unblurred state - only track messages that are flagged but not finalized
+                setUnblurredMessages(new Set());
+                
+                console.log(`✅ Loaded conversation with ${sortedMessages.length} messages`);
+              } else {
+                setMessages([]);
+                setUnblurredMessages(new Set());
+              }
+            } catch (fetchError) {
+              console.error('📋 [Chat] Error fetching full conversation:', fetchError);
               setMessages([]);
             }
-          } catch (fetchError) {
-            console.error('📋 [Chat] Error fetching full conversation:', fetchError);
-            setMessages([]);
           }
         }
-        console.log(`✅ Loaded existing conversation with ${mostRecent.messages?.length || 0} messages`);
       } else {
         // No existing conversations, create a new one
-        const { conversation } = await createConversation();
-        setConversationId(conversation.id);
-        setMessages([]);
-        console.log('✅ Created new conversation');
+        if (!conversationId) {
+          const { conversation } = await createConversation();
+          setConversationId(conversation.id);
+          setMessages([]);
+          console.log('✅ Created new conversation');
+        }
       }
     } catch (error) {
       console.error('Error initializing conversation:', error);
@@ -170,7 +186,22 @@ export default function Chat() {
       // Refresh conversation to get updated messages (with timeout protection)
       try {
         const { conversation } = await getConversation(conversationId);
-        setMessages(conversation.messages || []);
+        const refreshedMessages = conversation.messages || [];
+        setMessages(refreshedMessages);
+        
+        // Preserve unblurred state for messages that are still flagged but not finalized
+        // If a message is now finalized (reviewed), it will show normally regardless
+        setUnblurredMessages(prev => {
+          const newSet = new Set(prev);
+          // Remove messages that are now finalized (they don't need to be tracked)
+          refreshedMessages.forEach(msg => {
+            if (msg.finalized) {
+              newSet.delete(msg.id);
+            }
+          });
+          return newSet;
+        });
+        
         setPendingMessage(null);
       } catch (refreshError) {
         console.warn('Could not refresh conversation, using response data:', refreshError);
@@ -490,9 +521,113 @@ export default function Chat() {
                   <Card className={`p-4 backdrop-blur-xl border-2 ${
                     message.sender === 'user' 
                       ? 'bg-gradient-to-br from-gold-50/90 to-gold-100/80 border-gold-300/60 shadow-lg shadow-gold-300/20' 
-                      : 'bg-white/80 border-gold-200/50 shadow-lg shadow-gold-200/10'
+                      : message.flagged && !message.finalized
+                        ? 'bg-amber-50/80 border-amber-300/60 shadow-lg shadow-amber-300/20'
+                        : 'bg-white/80 border-gold-200/50 shadow-lg shadow-gold-200/10'
                   }`}>
-                  {message.sender === 'ai' ? (
+                  {/* Check if message should be blurred: flagged but not finalized (reviewed) */}
+                  {message.sender === 'ai' && message.flagged && !message.finalized && !unblurredMessages.has(message.id) ? (
+                    <div className="space-y-3">
+                      {/* Warning message */}
+                      <div className="flex items-start gap-2 p-3 bg-amber-100/50 border border-amber-300/50 rounded-lg">
+                        <AlertTriangle className="h-4 w-4 text-amber-600 flex-shrink-0 mt-0.5" />
+                        <div className="flex-1">
+                          <p className="text-xs font-semibold text-amber-800 mb-1">Content Warning</p>
+                          <p className="text-xs text-amber-700">
+                            This response has been flagged as potentially harmful or inconsiderate and is under review.
+                          </p>
+                        </div>
+                      </div>
+                      
+                      {/* Blurred content */}
+                      <div className="relative">
+                        <div className="blur-sm select-none pointer-events-none">
+                          <div className="text-sm prose prose-sm max-w-none">
+                            <ReactMarkdown
+                              components={{
+                                p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
+                                ul: ({ children }) => <ul className="list-disc list-inside mb-2 space-y-1">{children}</ul>,
+                                ol: ({ children }) => <ol className="list-decimal list-inside mb-2 space-y-1">{children}</ol>,
+                                li: ({ children }) => <li className="ml-2">{children}</li>,
+                                strong: ({ children }) => <strong className="font-semibold text-gray-900">{children}</strong>,
+                                em: ({ children }) => <em className="italic">{children}</em>,
+                                h1: ({ children }) => <h3 className="text-base font-semibold mb-2 mt-3 first:mt-0">{children}</h3>,
+                                h2: ({ children }) => <h4 className="text-sm font-semibold mb-1.5 mt-2.5 first:mt-0">{children}</h4>,
+                                h3: ({ children }) => <h5 className="text-sm font-medium mb-1 mt-2 first:mt-0">{children}</h5>,
+                              }}
+                            >
+                              {message.content}
+                            </ReactMarkdown>
+                          </div>
+                        </div>
+                        
+                        {/* Unblur button overlay */}
+                        <div className="absolute inset-0 flex items-center justify-center bg-amber-50/80 backdrop-blur-sm rounded-lg">
+                          <motion.div
+                            whileHover={{ scale: 1.05 }}
+                            whileTap={{ scale: 0.95 }}
+                          >
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => {
+                                setUnblurredMessages(prev => new Set([...prev, message.id]));
+                              }}
+                              className="bg-white/90 backdrop-blur-sm border-2 border-amber-400/70 hover:bg-white hover:border-amber-500 shadow-md"
+                            >
+                              <Eye className="h-4 w-4 mr-2" />
+                              View Content
+                            </Button>
+                          </motion.div>
+                        </div>
+                      </div>
+                      
+                      {message.risk_level && message.risk_level !== 'info' && (
+                        <Badge variant={getRiskBadgeVariant(message.risk_level)} className="mt-2">
+                          {message.risk_level.toUpperCase()}
+                        </Badge>
+                      )}
+                      <Badge variant="warning" className="mt-2 ml-2">
+                        Under Review
+                      </Badge>
+                    </div>
+                  ) : message.sender === 'ai' && message.flagged && !message.finalized && unblurredMessages.has(message.id) ? (
+                    // Unblurred but still under review
+                    <div className="space-y-3">
+                      <div className="flex items-start gap-2 p-2 bg-amber-100/50 border border-amber-300/50 rounded-lg">
+                        <AlertTriangle className="h-3.5 w-3.5 text-amber-600 flex-shrink-0 mt-0.5" />
+                        <p className="text-xs text-amber-700">
+                          This response is under review. Content shown at your discretion.
+                        </p>
+                      </div>
+                      <div className="text-sm prose prose-sm max-w-none">
+                        <ReactMarkdown
+                          components={{
+                            p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
+                            ul: ({ children }) => <ul className="list-disc list-inside mb-2 space-y-1">{children}</ul>,
+                            ol: ({ children }) => <ol className="list-decimal list-inside mb-2 space-y-1">{children}</ol>,
+                            li: ({ children }) => <li className="ml-2">{children}</li>,
+                            strong: ({ children }) => <strong className="font-semibold text-gray-900">{children}</strong>,
+                            em: ({ children }) => <em className="italic">{children}</em>,
+                            h1: ({ children }) => <h3 className="text-base font-semibold mb-2 mt-3 first:mt-0">{children}</h3>,
+                            h2: ({ children }) => <h4 className="text-sm font-semibold mb-1.5 mt-2.5 first:mt-0">{children}</h4>,
+                            h3: ({ children }) => <h5 className="text-sm font-medium mb-1 mt-2 first:mt-0">{children}</h5>,
+                          }}
+                        >
+                          {message.content}
+                        </ReactMarkdown>
+                      </div>
+                      {message.risk_level && message.risk_level !== 'info' && (
+                        <Badge variant={getRiskBadgeVariant(message.risk_level)} className="mt-2">
+                          {message.risk_level.toUpperCase()}
+                        </Badge>
+                      )}
+                      <Badge variant="warning" className="mt-2 ml-2">
+                        Under Review
+                      </Badge>
+                    </div>
+                  ) : message.sender === 'ai' ? (
+                    // Normal AI message (not flagged or already reviewed)
                     <div className="text-sm prose prose-sm max-w-none">
                       <ReactMarkdown
                         components={{
@@ -513,14 +648,9 @@ export default function Chat() {
                   ) : (
                     <p className="text-sm whitespace-pre-wrap">{message.content}</p>
                   )}
-                  {message.risk_level && message.risk_level !== 'info' && (
+                  {message.risk_level && message.risk_level !== 'info' && message.sender === 'ai' && (!message.flagged || message.finalized) && (
                     <Badge variant={getRiskBadgeVariant(message.risk_level)} className="mt-2">
                       {message.risk_level.toUpperCase()}
-                    </Badge>
-                  )}
-                  {message.flagged && (
-                    <Badge variant="warning" className="mt-2 ml-2">
-                      Under Review
                     </Badge>
                   )}
                   </Card>

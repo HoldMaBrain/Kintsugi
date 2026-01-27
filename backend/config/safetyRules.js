@@ -72,6 +72,17 @@ export const PROMPT_INJECTION_PATTERNS = [
   /repeat (the word|this word)/i,
   /say exactly/i,
   /output (only|just) (the word|this)/i,
+  // Contradictory instructions that go against the chatbot's role
+  /avoid (validating|reassurance|empathy|support|being supportive)/i,
+  /don't (validate|reassure|be empathetic|be supportive|show empathy)/i,
+  /never (validate|reassure|be empathetic|be supportive)/i,
+  /your response must/i,
+  /your response should/i,
+  /you must (avoid|not|never)/i,
+  /if you violate (any )?rule/i,
+  /continue anyway/i,
+  /violate (any )?rule/i,
+  /(must|should) (avoid|not|never) (validating|reassurance|empathy|support)/i,
 ];
 
 export function checkCrisisKeywords(text) {

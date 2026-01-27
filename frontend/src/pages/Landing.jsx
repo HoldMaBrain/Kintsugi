@@ -10,10 +10,11 @@ export default function Landing() {
   const navigate = useNavigate();
   const containerRef = useRef(null);
   
-  // Parallax scrolling
+  // Parallax scrolling - use layoutEffect: false to prevent hydration warning
   const { scrollYProgress } = useScroll({
     target: containerRef,
-    offset: ["start start", "end start"]
+    offset: ["start start", "end start"],
+    layoutEffect: false
   });
   
   // Subtle parallax transforms
