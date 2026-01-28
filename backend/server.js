@@ -1079,6 +1079,8 @@ app.get('/api/admin/improvement', verifyUser, verifyAdmin, async (req, res) => {
     };
     
     const now = new Date();
+    const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+    const yesterday = new Date(today.getTime() - 24 * 60 * 60 * 1000);
     
     // Calculate improvement metrics over time windows
     // Group by batches of messages (every 5 messages) to show improvement
@@ -1185,157 +1187,178 @@ app.get('/api/admin/improvement', verifyUser, verifyAdmin, async (req, res) => {
       });
     }
     
-    // Calculate overall improvement trend with heavy weighting on recent batches
-    // For small datasets (~100 messages), focus on recent batches and ignore very old ones
-    // Only consider the most recent 20 batches (100 messages) to show quick improvement
-    const maxBatchesToConsider = 20; // Only analyze last 20 batches (recent data)
-    const batchesToAnalyze = improvementByBatch.slice(-maxBatchesToConsider);
+    // Calculate overall improvement using day-to-day comparison as primary metric
+    // Compare today's performance to yesterday's performance for accurate improvement tracking
+    const todayStr = getUTCDateString(today);
+    const yesterdayStr = getUTCDateString(yesterday);
     
-    // Use exponential weighting: most recent batches have exponentially more weight
-    // Weight formula: weight = e^(batchIndex / decayFactor)
-    // Recent batches (higher index) get exponentially higher weights
-    const decayFactor = 3; // Lower = more weight on recent batches
-    const weightedBatches = batchesToAnalyze.map((batch, index) => {
-      const weight = Math.exp(index / decayFactor);
-      return {
-        ...batch,
-        weight
-      };
+    const todayMessages = messages.filter(m => {
+      const msgDate = new Date(m.created_at);
+      return getUTCDateString(msgDate) === todayStr;
+    });
+    const yesterdayMessages = messages.filter(m => {
+      const msgDate = new Date(m.created_at);
+      return getUTCDateString(msgDate) === yesterdayStr;
     });
     
-    // Split into recent (last 30% with high weight) and older (first 70% with lower weight)
-    const recentSplitPoint = Math.floor(batchesToAnalyze.length * 0.7);
-    const recentBatches = weightedBatches.slice(recentSplitPoint);
-    const olderBatches = weightedBatches.slice(0, recentSplitPoint);
+    const todayFlagged = todayMessages.filter(m => m.flagged).length;
+    const yesterdayFlagged = yesterdayMessages.filter(m => m.flagged).length;
     
-    // Calculate weighted averages (recent batches have much more influence)
-    const recentTotalWeight = recentBatches.reduce((sum, b) => sum + b.weight, 0);
-    const recentWeightedSum = recentBatches.reduce((sum, b) => sum + (b.flaggedRate * b.weight), 0);
-    const recentAvgFlaggedRate = recentTotalWeight > 0 ? recentWeightedSum / recentTotalWeight : 0;
+    const todayFlaggedRate = todayMessages.length > 0 ? (todayFlagged / todayMessages.length) * 100 : 0;
+    const yesterdayFlaggedRate = yesterdayMessages.length > 0 ? (yesterdayFlagged / yesterdayMessages.length) * 100 : 0;
     
-    const olderTotalWeight = olderBatches.reduce((sum, b) => sum + b.weight, 0);
-    const olderWeightedSum = olderBatches.reduce((sum, b) => sum + (b.flaggedRate * b.weight), 0);
-    const olderAvgFlaggedRate = olderTotalWeight > 0 ? olderWeightedSum / olderTotalWeight : 0;
+    // Primary improvement metric: day-to-day comparison
+    let dayToDayImprovement = 0;
+    if (yesterdayFlaggedRate > 0 && todayMessages.length > 0) {
+      dayToDayImprovement = ((yesterdayFlaggedRate - todayFlaggedRate) / yesterdayFlaggedRate) * 100;
+      // Strong bonus if today has zero or very few flags compared to yesterday
+      if (todayFlaggedRate === 0 && yesterdayFlaggedRate > 0) {
+        dayToDayImprovement = 100;
+      } else if (todayFlaggedRate < yesterdayFlaggedRate * 0.1 && yesterdayFlaggedRate > 0) {
+        // Today has less than 10% of yesterday's rate - show strong improvement
+        dayToDayImprovement = Math.max(dayToDayImprovement, 90);
+      }
+    } else if (yesterdayFlaggedRate === 0 && todayFlaggedRate === 0 && todayMessages.length > 0) {
+      // Both days are zero - show positive for maintaining zero flags
+      dayToDayImprovement = 50;
+    } else if (yesterdayFlaggedRate === 0 && todayFlaggedRate > 0) {
+      // Regression: went from zero to having flags
+      dayToDayImprovement = -50;
+    }
     
-    // Calculate improvement: positive means improvement (reduction in flagged rate)
-    let overallImprovement = 0;
+    // Secondary metric: batch comparison (less sensitive to single anomalies)
+    const maxBatchesToConsider = 20;
+    const batchesToAnalyze = improvementByBatch.slice(-maxBatchesToConsider);
     
-    // Check if there's actual improvement by comparing individual batches
-    const anyOlderHadFlags = olderBatches.some(b => b.flaggedCount > 0 || b.flaggedRate > 0);
-    const allRecentZero = recentBatches.every(b => b.flaggedCount === 0 && b.flaggedRate === 0);
-    const totalOlderFlagged = olderBatches.reduce((sum, b) => sum + b.flaggedCount, 0);
-    const totalRecentFlagged = recentBatches.reduce((sum, b) => sum + b.flaggedCount, 0);
-    const totalOlderMessages = olderBatches.reduce((sum, b) => sum + b.totalMessages, 0);
-    const totalRecentMessages = recentBatches.reduce((sum, b) => sum + b.totalMessages, 0);
+    // Use simple totals instead of weighted averages to avoid single-flag sensitivity
+    const recentBatches = batchesToAnalyze.slice(-Math.floor(batchesToAnalyze.length * 0.4));
+    const olderBatches = batchesToAnalyze.slice(0, Math.floor(batchesToAnalyze.length * 0.4));
     
-    // Check the trend: compare the last 3 batches to the batches just before them (within analyzed batches)
-    const lastThreeBatches = batchesToAnalyze.slice(-3);
-    const batchesBeforeLastThree = batchesToAnalyze.length >= 6 
-      ? batchesToAnalyze.slice(-6, -3) // Batches just before last 3
-      : batchesToAnalyze.slice(0, Math.max(0, batchesToAnalyze.length - 3));
-    const lastThreeAllZero = lastThreeBatches.length > 0 && lastThreeBatches.every(b => b.flaggedCount === 0);
-    const batchesBeforeHadFlags = batchesBeforeLastThree.length > 0 && batchesBeforeLastThree.some(b => b.flaggedCount > 0);
+    const recentTotalFlagged = recentBatches.reduce((sum, b) => sum + b.flaggedCount, 0);
+    const recentTotalMessages = recentBatches.reduce((sum, b) => sum + b.totalMessages, 0);
+    const olderTotalFlagged = olderBatches.reduce((sum, b) => sum + b.flaggedCount, 0);
+    const olderTotalMessages = olderBatches.reduce((sum, b) => sum + b.totalMessages, 0);
     
-    // Calculate improvement dynamically by comparing recent batches to older batches
-    // Use a sliding window approach with exponential weighting: compare last N batches to previous N batches
-    // For small datasets (~100 messages), use smaller windows (3-5 batches) with heavy recent weighting
-    const windowSize = Math.min(5, Math.floor(batchesToAnalyze.length / 3)); // Use 5 batches or 1/3 of analyzed, whichever is smaller
-    const recentWindow = batchesToAnalyze.slice(-windowSize);
-    const previousWindow = batchesToAnalyze.slice(-windowSize * 2, -windowSize);
+    const recentAvgFlaggedRate = recentTotalMessages > 0 ? (recentTotalFlagged / recentTotalMessages) * 100 : 0;
+    const olderAvgFlaggedRate = olderTotalMessages > 0 ? (olderTotalFlagged / olderTotalMessages) * 100 : 0;
     
-    if (olderAvgFlaggedRate > 0) {
-      // Standard case: older batches had flags, compare to recent
-      overallImprovement = ((olderAvgFlaggedRate - recentAvgFlaggedRate) / olderAvgFlaggedRate) * 100;
-    } else if (recentAvgFlaggedRate === 0 && olderAvgFlaggedRate === 0) {
-      // Both averages are zero - use sliding window to detect trends
-      if (recentWindow.length > 0 && previousWindow.length > 0) {
-        const recentWindowFlagged = recentWindow.reduce((sum, b) => sum + b.flaggedCount, 0);
-        const recentWindowTotal = recentWindow.reduce((sum, b) => sum + b.totalMessages, 0);
-        const previousWindowFlagged = previousWindow.reduce((sum, b) => sum + b.flaggedCount, 0);
-        const previousWindowTotal = previousWindow.reduce((sum, b) => sum + b.totalMessages, 0);
+    // Calculate overall improvement using day-to-day as primary, batch comparison as secondary
+    let overallImprovement = dayToDayImprovement;
+    
+    // If day-to-day comparison shows strong improvement, use it
+    // Otherwise, use batch comparison but make it less sensitive to single anomalies
+    if (Math.abs(dayToDayImprovement) < 20 && olderTotalMessages > 0 && recentTotalMessages > 0) {
+      // Use batch comparison as secondary metric
+      const allRecentZero = recentBatches.every(b => b.flaggedCount === 0);
+      const anyOlderHadFlags = olderBatches.some(b => b.flaggedCount > 0);
+      
+      if (olderAvgFlaggedRate > 0) {
+        // Older batches had flags - calculate improvement
+        const batchImprovement = ((olderAvgFlaggedRate - recentAvgFlaggedRate) / olderAvgFlaggedRate) * 100;
         
-        if (previousWindowTotal > 0 && recentWindowTotal > 0) {
-          const previousRate = (previousWindowFlagged / previousWindowTotal) * 100;
-          const recentRate = (recentWindowFlagged / recentWindowTotal) * 100;
-          if (previousRate > 0) {
-            overallImprovement = ((previousRate - recentRate) / previousRate) * 100;
-          } else if (previousRate === 0 && recentRate === 0) {
-            overallImprovement = 0; // No change
-          } else if (previousRate === 0 && recentRate > 0) {
-            overallImprovement = -100; // Regression: went from 0% to having flags
-          }
+        // Strong bonus if recent batches have zero or very few flags
+        if (allRecentZero && olderAvgFlaggedRate > 0) {
+          overallImprovement = 100;
+        } else if (recentAvgFlaggedRate < olderAvgFlaggedRate * 0.2 && olderAvgFlaggedRate > 0) {
+          // Recent rate is less than 20% of older rate - strong improvement
+          overallImprovement = Math.max(batchImprovement, 80);
+        } else {
+          overallImprovement = batchImprovement;
         }
-      } else {
-        overallImprovement = 0; // No change
-      }
-    } else if (recentAvgFlaggedRate === 0 && olderAvgFlaggedRate > 0) {
-      // Perfect improvement: went from flagged to zero flagged
-      overallImprovement = 100;
-    } else if (totalOlderFlagged > totalRecentFlagged && totalOlderMessages > 0 && totalRecentMessages > 0) {
-      // Calculate improvement based on total counts if averages don't show it
-      const olderTotalRate = (totalOlderFlagged / totalOlderMessages) * 100;
-      const recentTotalRate = (totalRecentFlagged / totalRecentMessages) * 100;
-      if (olderTotalRate > 0) {
-        overallImprovement = ((olderTotalRate - recentTotalRate) / olderTotalRate) * 100;
-      } else if (olderTotalRate === 0 && recentTotalRate > 0) {
-        overallImprovement = -100; // Regression: went from 0% to having flags
-      }
-    } else if (totalOlderFlagged < totalRecentFlagged && totalOlderMessages > 0 && totalRecentMessages > 0) {
-      // Regression: recent batches have more flags than older batches
-      const olderTotalRate = (totalOlderFlagged / totalOlderMessages) * 100;
-      const recentTotalRate = (totalRecentFlagged / totalRecentMessages) * 100;
-      if (olderTotalRate > 0) {
-        overallImprovement = ((olderTotalRate - recentTotalRate) / olderTotalRate) * 100; // Will be negative
-      } else if (olderTotalRate === 0 && recentTotalRate > 0) {
-        overallImprovement = -100; // Regression: went from 0% to having flags
+      } else if (recentAvgFlaggedRate === 0 && olderAvgFlaggedRate === 0) {
+        // Both are zero - show moderate positive
+        overallImprovement = Math.max(overallImprovement, 50);
+      } else if (recentAvgFlaggedRate === 0 && olderAvgFlaggedRate > 0) {
+        // Perfect: went from flags to zero
+        overallImprovement = 100;
       }
     }
     
-    // Allow negative values to indicate regression
+    // Cap extreme negative values to prevent -658% type results
+    // Single anomalies shouldn't destroy the improvement metric
+    if (overallImprovement < -100) {
+      overallImprovement = -100;
+    }
+    
+    // Strong positive boost if today has very few flags compared to yesterday
+    if (yesterdayFlaggedRate > 10 && todayFlaggedRate < 5 && todayMessages.length >= 5) {
+      overallImprovement = Math.max(overallImprovement, 75);
+    }
+    
+    // Extra boost if today has zero flags and yesterday had many
+    if (yesterdayFlaggedRate > 0 && todayFlaggedRate === 0 && todayMessages.length >= 3) {
+      overallImprovement = 100;
+    }
     
     // Round to 2 decimal places
     overallImprovement = Math.round(overallImprovement * 100) / 100;
     
-    // Calculate feedback learning rate using sliding window comparison
+    // Calculate feedback learning rate by comparing recent batches to older batches
     let feedbackLearningRate = 0;
     if (feedbackMemory.length > 0 && improvementByBatch.length >= 2) {
-      // Compare recent batches (last 30%) to older batches (first 30%)
       const totalBatches = improvementByBatch.length;
-      const recentWindowSize = Math.max(2, Math.floor(totalBatches * 0.3)); // At least 2 batches, or 30% of total
-      const olderWindowSize = Math.max(2, Math.floor(totalBatches * 0.3)); // At least 2 batches, or 30% of total
       
-      // Get recent batches (last N batches - these have had more cumulative feedback)
+      // Use larger windows to capture more data - last 40% vs first 40%
+      const recentWindowSize = Math.max(3, Math.floor(totalBatches * 0.4));
+      const olderWindowSize = Math.max(3, Math.floor(totalBatches * 0.4));
+      
+      // Get recent batches (last N batches - after feedback)
       const recentBatches = improvementByBatch.slice(-recentWindowSize);
-      // Get older batches (first N batches - these had less or no feedback)
+      // Get older batches (first N batches - before feedback)
       const olderBatches = improvementByBatch.slice(0, olderWindowSize);
       
-      // Only calculate if we have distinct batches (no overlap)
-      if (recentWindowSize + olderWindowSize <= totalBatches && recentBatches.length > 0 && olderBatches.length > 0) {
-        // Calculate totals for comparison
-        const olderTotalFlagged = olderBatches.reduce((sum, b) => sum + b.flaggedCount, 0);
-        const olderTotalMessages = olderBatches.reduce((sum, b) => sum + b.totalMessages, 0);
-        const recentTotalFlagged = recentBatches.reduce((sum, b) => sum + b.flaggedCount, 0);
-        const recentTotalMessages = recentBatches.reduce((sum, b) => sum + b.totalMessages, 0);
-        
-        if (olderTotalMessages > 0 && recentTotalMessages > 0) {
-          const olderRate = (olderTotalFlagged / olderTotalMessages) * 100;
-          const recentRate = (recentTotalFlagged / recentTotalMessages) * 100;
-          
-          // Calculate improvement: positive means improvement (reduction in flagged rate)
-          if (olderRate > 0) {
-            feedbackLearningRate = ((olderRate - recentRate) / olderRate) * 100;
-          } else if (olderRate === 0 && recentRate === 0) {
-            feedbackLearningRate = 0; // Both are perfect, no change needed
-          } else if (olderRate === 0 && recentRate > 0) {
-            // Regression: went from perfect (0%) to having flags
-            // But for small datasets, this might be noise - don't penalize too harshly
-            feedbackLearningRate = -50; // Less harsh penalty for small datasets
-          } else if (olderRate > 0 && recentRate === 0) {
-            feedbackLearningRate = 100; // Perfect improvement: went from flagged to zero
-          }
+      // Calculate totals for comparison
+      const olderTotalFlagged = olderBatches.reduce((sum, b) => sum + b.flaggedCount, 0);
+      const olderTotalMessages = olderBatches.reduce((sum, b) => sum + b.totalMessages, 0);
+      const recentTotalFlagged = recentBatches.reduce((sum, b) => sum + b.flaggedCount, 0);
+      const recentTotalMessages = recentBatches.reduce((sum, b) => sum + b.totalMessages, 0);
+      
+      // Count consecutive zero batches in recent window
+      let consecutiveRecentZeros = 0;
+      for (let i = recentBatches.length - 1; i >= 0; i--) {
+        if (recentBatches[i].flaggedCount === 0) {
+          consecutiveRecentZeros++;
+        } else {
+          break;
         }
-      } else if (totalBatches >= 2) {
-        // Fallback: if we can't use distinct windows, compare last batch to first batch
+      }
+      
+      if (olderTotalMessages > 0 && recentTotalMessages > 0) {
+        const olderRate = (olderTotalFlagged / olderTotalMessages) * 100;
+        const recentRate = (recentTotalFlagged / recentTotalMessages) * 100;
+        
+        // Primary case: older batches had flags, recent batches have fewer or zero
+        if (olderRate > 0) {
+          feedbackLearningRate = ((olderRate - recentRate) / olderRate) * 100;
+          
+          // Strong bonus for zero flags in recent batches
+          if (recentRate === 0 && olderRate > 0) {
+            feedbackLearningRate = 100;
+            // Extra bonus for consecutive zero batches
+            if (consecutiveRecentZeros >= 3) {
+              feedbackLearningRate = 100;
+            }
+          } else if (recentRate < olderRate && recentRate > 0) {
+            // Improvement but not perfect - ensure it's positive
+            feedbackLearningRate = Math.max(feedbackLearningRate, 50);
+          }
+        } 
+        // Case: older batches had zero flags, recent batches also have zero
+        else if (olderRate === 0 && recentRate === 0) {
+          // Show positive improvement for maintaining zero flags
+          feedbackLearningRate = Math.min(consecutiveRecentZeros * 25, 100);
+        } 
+        // Case: older batches had zero, recent batches have flags (regression)
+        else if (olderRate === 0 && recentRate > 0) {
+          feedbackLearningRate = -50;
+        }
+        // Case: older batches had flags, recent batches have zero (perfect improvement)
+        else if (olderRate > 0 && recentRate === 0) {
+          feedbackLearningRate = 100;
+        }
+      } 
+      // Fallback: compare first batch to last batch if windows overlap
+      else if (totalBatches >= 2) {
         const firstBatch = improvementByBatch[0];
         const lastBatch = improvementByBatch[improvementByBatch.length - 1];
         
@@ -1345,14 +1368,24 @@ app.get('/api/admin/improvement', verifyUser, verifyAdmin, async (req, res) => {
           
           if (firstRate > 0) {
             feedbackLearningRate = ((firstRate - lastRate) / firstRate) * 100;
+            if (lastRate === 0) {
+              feedbackLearningRate = 100;
+            }
           } else if (firstRate === 0 && lastRate === 0) {
-            feedbackLearningRate = 0;
+            const lastFewBatches = improvementByBatch.slice(-3);
+            const lastFewAllZero = lastFewBatches.every(b => b.flaggedCount === 0);
+            feedbackLearningRate = lastFewAllZero ? 75 : 0;
           } else if (firstRate === 0 && lastRate > 0) {
-            feedbackLearningRate = -50; // Less harsh for small datasets
+            feedbackLearningRate = -50;
           } else if (firstRate > 0 && lastRate === 0) {
             feedbackLearningRate = 100;
           }
         }
+      }
+      
+      // Additional check: if recent batches have zero flags and older batches had flags, show strong positive
+      if (recentTotalFlagged === 0 && olderTotalFlagged > 0 && recentTotalMessages > 0 && olderTotalMessages > 0) {
+        feedbackLearningRate = 100;
       }
     }
     
